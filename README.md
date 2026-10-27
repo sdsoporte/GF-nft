@@ -60,6 +60,10 @@ bun run build         # Vite build of the prototype
 GF_API_TOKEN=... docker compose config --quiet
 ```
 
+CI runs the same three commands on every pull request, headless (no UI), from
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). A red run marks the PR;
+making that check merge-blocking is a branch-protection setting on GitHub.
+
 ## Limits
 
 - In-memory state: restarting the process or container starts a new match.
