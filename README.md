@@ -2,9 +2,10 @@
 
 The GigaForge simulation now has an independently runnable backend in
 [`backend/`](backend/README.md): one Bun process owns the match clock, the
-command queue and the inventory. The Godot game in [`gf/`](gf/README.md) and the
-existing React prototype are clients. Start with the backend, in Docker or
-locally, then connect a client.
+command queue and the inventory. The Godot game in [`gf/`](gf/README.md) is its
+client. The existing React prototype keeps its own local simulation and is not
+connected to this backend. Start the backend in Docker or locally, then
+connect Godot.
 
 The wire contract is frozen in [`docs/factory-api.md`](docs/factory-api.md).
 
@@ -18,7 +19,7 @@ The wire contract is frozen in [`docs/factory-api.md`](docs/factory-api.md).
 
 ```bash
 export GF_API_TOKEN="$(openssl rand -hex 24)"
-docker compose up --build
+docker compose up --build --detach --wait
 curl -s http://127.0.0.1:8787/health        # {"status":"ok","protocolVersion":1}
 ```
 
@@ -30,7 +31,6 @@ Compose publishes the port on `127.0.0.1` only and refuses to start without
 ```bash
 export GF_API_TOKEN="$(openssl rand -hex 24)"
 bun run server                              # defaults: 127.0.0.1:8787
-curl -s -H "Authorization: Bearer $GF_API_TOKEN" http://127.0.0.1:8787/v1/state
 ```
 
 `bun backend/main.ts --help` prints every command, environment variable and
