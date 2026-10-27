@@ -1,0 +1,41 @@
+{
+  "protocolVersion": 1,
+  "matchId": "match_smoke_0001",
+  "tick": 341,
+  "tickIntervalMs": 1000,
+  "company": {
+    "companyId": "comp_metal_01",
+    "name": "Ironclad Metallurgy",
+    "industrialClass": "CLASS_A_METALLURGY",
+    "credits": 10000,
+    "energy": 360,
+    "maxEnergyStorage": 1000,
+    "inventory": {
+      "RAW_ORE": { "available": 200, "reserved": 0 },
+      "IRON_INGOT": { "available": 5, "reserved": 0 }
+    },
+    "lines": [
+      {
+        "lineId": "comp_metal_01_line_2",
+        "companyId": "comp_metal_01",
+        "priority": 2,
+        "status": "IDLE",
+        "currentRecipeId": null,
+        "totalBatchesProduced": 1,
+        "lastActionTick": 340,
+        "activeBatch": null
+      }
+    ]
+  },
+  "recipes": [
+    {
+      "id": "R1",
+      "name": "Lingote de Hierro (IRON_INGOT)",
+      "inputs": [{ "itemId": "RAW_ORE", "quantity": 10 }],
+      "outputItem": "IRON_INGOT",
+      "outputQuantity": 5,
+      "durationTicks": 10,
+      "energyCost": 20
+    }
+  ]
+}

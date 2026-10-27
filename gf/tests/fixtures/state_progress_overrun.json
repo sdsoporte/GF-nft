@@ -1,0 +1,34 @@
+{
+  "protocolVersion": 1,
+  "matchId": "match_fixture_overrun",
+  "tick": 3,
+  "tickIntervalMs": 1000,
+  "company": {
+    "companyId": "comp_metal_01",
+    "name": "Ironclad Metallurgy",
+    "industrialClass": "CLASS_A_METALLURGY",
+    "credits": 100,
+    "energy": 100,
+    "maxEnergyStorage": 1000,
+    "inventory": {},
+    "lines": [
+      {
+        "lineId": "comp_metal_01_line_1",
+        "companyId": "comp_metal_01",
+        "priority": 1,
+        "status": "RUNNING",
+        "currentRecipeId": "R1",
+        "totalBatchesProduced": 0,
+        "lastActionTick": 1,
+        "activeBatch": {
+          "recipeId": "R1",
+          "targetBatches": 1,
+          "completedBatches": 0,
+          "progressTicks": 12,
+          "totalDurationTicks": 10
+        }
+      }
+    ]
+  },
+  "recipes": []
+}
