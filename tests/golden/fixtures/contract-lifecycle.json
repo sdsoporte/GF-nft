@@ -1,0 +1,174 @@
+{
+  "digestEvery": 1,
+  "finalState": {
+    "acceptedIdempotencyKeys": [
+      "idem_contract-lifecycle_1",
+      "idem_contract-lifecycle_2",
+      "idem_contract-lifecycle_3",
+      "idem_contract-lifecycle_4",
+      "idem_contract-lifecycle_5",
+      "idem_contract-lifecycle_6",
+      "idem_contract-lifecycle_7",
+      "idem_contract-lifecycle_8",
+      "idem_contract-lifecycle_9"
+    ],
+    "companies": [
+      {
+        "companyId": "gf_assembly",
+        "contributedMegamachinePartsR8": 0,
+        "credits": 9650,
+        "energy": 1000,
+        "energyGenerationPerTick": 20,
+        "industrialClass": "CLASS_B_MANUFACTURING",
+        "installedTurbinesR7": 0,
+        "inventory": {
+          "CTRL_CIRCUIT": {"available":0,"reserved":0},
+          "HEAVY_ALLOY": {"available":0,"reserved":0},
+          "IND_TURBINE": {"available":0,"reserved":0},
+          "IRON_INGOT": {"available":4,"reserved":0},
+          "MECH_FRAME": {"available":0,"reserved":0},
+          "MEGAMACHINE_PART": {"available":0,"reserved":0},
+          "POWER_MODULE": {"available":0,"reserved":0},
+          "RAW_ORE": {"available":20,"reserved":0},
+          "STEEL_PLATE": {"available":0,"reserved":0}
+        },
+        "isNPC": false,
+        "lines": [
+          {"activeBatch":null,"companyId":"gf_assembly","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_assembly_line_1","priority":1,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_assembly","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_assembly_line_2","priority":2,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_assembly","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_assembly_line_3","priority":3,"status":"IDLE","totalBatchesProduced":0}
+        ],
+        "maintenancePaidTicks": 0,
+        "maxEnergyStorage": 1000,
+        "name": "Assembly Works",
+        "reputation": 105
+      },
+      {
+        "companyId": "gf_forge",
+        "contributedMegamachinePartsR8": 0,
+        "credits": 10342,
+        "energy": 1000,
+        "energyGenerationPerTick": 20,
+        "industrialClass": "CLASS_A_METALLURGY",
+        "installedTurbinesR7": 0,
+        "inventory": {
+          "CTRL_CIRCUIT": {"available":0,"reserved":0},
+          "HEAVY_ALLOY": {"available":0,"reserved":0},
+          "IND_TURBINE": {"available":0,"reserved":0},
+          "IRON_INGOT": {"available":26,"reserved":0},
+          "MECH_FRAME": {"available":0,"reserved":0},
+          "MEGAMACHINE_PART": {"available":0,"reserved":0},
+          "POWER_MODULE": {"available":0,"reserved":0},
+          "RAW_ORE": {"available":60,"reserved":0},
+          "STEEL_PLATE": {"available":0,"reserved":0}
+        },
+        "isNPC": false,
+        "lines": [
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":"R1","lastActionTick":12,"lineId":"gf_forge_line_1","priority":1,"status":"IDLE","totalBatchesProduced":2},
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_forge_line_2","priority":2,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_forge_line_3","priority":3,"status":"IDLE","totalBatchesProduced":0}
+        ],
+        "maintenancePaidTicks": 0,
+        "maxEnergyStorage": 1000,
+        "name": "GigaForge Metallurgy",
+        "reputation": 90
+      }
+    ],
+    "contracts": [
+      {
+        "buyerCompanyId": "",
+        "collateralSellerCredits": 4,
+        "contractId": "cnt_10_3",
+        "createdAtTick": 10,
+        "deadlineTick": 40,
+        "deliveredQuantity": 0,
+        "itemId": "IRON_INGOT",
+        "penaltyPerMissingUnit": 10,
+        "sellerCompanyId": "gf_forge",
+        "settledAtTick": 11,
+        "status": "CANCELLED",
+        "totalQuantity": 2,
+        "totalValueCredits": 20,
+        "unitPriceCredits": 10
+      },
+      {
+        "buyerCompanyId": "gf_assembly",
+        "collateralSellerCredits": 80,
+        "contractId": "cnt_1_1",
+        "createdAtTick": 1,
+        "deadlineTick": 40,
+        "deliveredQuantity": 4,
+        "itemId": "IRON_INGOT",
+        "penaltyPerMissingUnit": 10,
+        "sellerCompanyId": "gf_forge",
+        "settledAtTick": 4,
+        "status": "FULFILLED",
+        "totalQuantity": 4,
+        "totalValueCredits": 400,
+        "unitPriceCredits": 100
+      },
+      {
+        "buyerCompanyId": "gf_assembly",
+        "collateralSellerCredits": 50,
+        "contractId": "cnt_8_2",
+        "createdAtTick": 8,
+        "deadlineTick": 20,
+        "deliveredQuantity": 0,
+        "itemId": "IRON_INGOT",
+        "penaltyPerMissingUnit": 10,
+        "sellerCompanyId": "gf_forge",
+        "settledAtTick": 21,
+        "status": "DEFAULTED",
+        "totalQuantity": 5,
+        "totalValueCredits": 250,
+        "unitPriceCredits": 50
+      }
+    ],
+    "executionHistory": [
+      {"commandId":"cmd_contract-lifecycle_1","executedAtTick":1,"idempotencyKey":"idem_contract-lifecycle_1","success":true},
+      {"commandId":"cmd_contract-lifecycle_2","executedAtTick":2,"idempotencyKey":"idem_contract-lifecycle_2","success":true},
+      {"commandId":"cmd_contract-lifecycle_3","executedAtTick":4,"idempotencyKey":"idem_contract-lifecycle_3","success":true},
+      {"commandId":"cmd_contract-lifecycle_4","executedAtTick":8,"idempotencyKey":"idem_contract-lifecycle_4","success":true},
+      {"commandId":"cmd_contract-lifecycle_5","executedAtTick":9,"idempotencyKey":"idem_contract-lifecycle_5","success":true},
+      {"commandId":"cmd_contract-lifecycle_6","executedAtTick":10,"idempotencyKey":"idem_contract-lifecycle_6","success":true},
+      {"commandId":"cmd_contract-lifecycle_7","executedAtTick":11,"idempotencyKey":"idem_contract-lifecycle_7","success":true},
+      {"commandId":"cmd_contract-lifecycle_8","executedAtTick":12,"idempotencyKey":"idem_contract-lifecycle_8","success":true},
+      {
+        "commandId": "cmd_contract-lifecycle_9",
+        "errorCode": "ERR_INSUFFICIENT_INVENTORY",
+        "errorMessage": "Insufficient materials to start recipe R3",
+        "executedAtTick": 14,
+        "idempotencyKey": "idem_contract-lifecycle_9",
+        "success": false
+      }
+    ],
+    "globalProject": {"completedAtTick":null,"deliveredMegamachineParts":0,"isVictorious":false,"requiredMegamachineParts":12},
+    "netWorth": [
+      {"companyId":"gf_assembly","credits":9650,"netWorth":14900,"r7InstalledCredits":0,"r8ContributedCredits":0,"reputationCredits":5250},
+      {"companyId":"gf_forge","credits":10342,"netWorth":14842,"r7InstalledCredits":0,"r8ContributedCredits":0,"reputationCredits":4500}
+    ],
+    "pendingCommandCount": 0,
+    "stateHash": "54165716",
+    "tick": 45
+  },
+  "lineStatusTimeline": [
+    "gf_assembly/gf_assembly_line_1 I45",
+    "gf_assembly/gf_assembly_line_2 I45",
+    "gf_assembly/gf_assembly_line_3 I45",
+    "gf_forge/gf_forge_line_1 I11R19I15",
+    "gf_forge/gf_forge_line_2 I45",
+    "gf_forge/gf_forge_line_3 I45"
+  ],
+  "note": "Targeted offer fulfilled, second contract defaulted at its deadline, open offer cancelled.",
+  "scenario": "contract-lifecycle",
+  "seed": 42107,
+  "tickDigest": [
+    "1=adae9124 2=1598a302 3=a60ca8fb 4=ac650c7c 5=1a3fa839 6=9cbfd096 7=c34c49a3 8=1be8fbbc",
+    "9=e6b3df4a 10=d9b848e1 11=14503030 12=aa159b23 13=1c25d01c 14=c15c782d 15=9f59f612 16=2383d93f",
+    "17=94b691d0 18=c00743c1 19=24a74ece 20=0d0a4820 21=3f2e098b 22=02cba84a 23=f6ed9429 24=68e296ac",
+    "25=9a4a2617 26=8bd1c9ae 27=ccaccbdd 28=7ddb1f78 29=567510c3 30=3e05c882 31=af58504e 32=bd36d841",
+    "33=0405bbd3 34=9e693c6c 35=caac5860 36=f0e0974f 37=1b4c48da 38=b4809f51 39=73841324 40=f1fcf3df",
+    "41=1f897b12 42=eb71e3e1 43=48c5fc0c 44=fc05b2b3 45=54165716"
+  ],
+  "totalTicks": 45
+}
