@@ -1,0 +1,6 @@
+{
+  "name": "GigaForge v4.1 — Industrial Strategy Engine",
+  "description": "Authoritative discrete-tick industrial strategy simulation engine with asymmetric manufacturing classes, deterministic B2B supply contracts, and MCP automation gateway.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
