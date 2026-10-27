@@ -1,0 +1,24 @@
+# Local development deployment of the authoritative factory backend.
+#
+# The match lives in one process's memory: restarting the container starts a
+# new match with a new match ID. This is a development slice, not a public
+# production service.
+#
+#   export GF_API_TOKEN="$(openssl rand -hex 24)"
+#   docker compose up --build
+#
+# The published port stays on the loopback interface by default.
+services:
+  factory-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gf-factory-backend:dev
+    environment:
+      # Compose refuses to start without a token; 32+ printable characters.
+      GF_API_TOKEN: ${GF_API_TOKEN:?GF_API_TOKEN is required}
+      GF_HOST: 0.0.0.0
+      GF_PORT: "8787"
+    ports:
+      - "127.0.0.1:${GF_PUBLISHED_PORT:-8787}:8787"
+    restart: "no"
