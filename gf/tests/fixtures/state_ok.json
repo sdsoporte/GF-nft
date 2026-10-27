@@ -1,0 +1,82 @@
+{
+  "protocolVersion": 1,
+  "matchId": "match_fixture_0001",
+  "tick": 42,
+  "tickIntervalMs": 1000,
+  "company": {
+    "companyId": "comp_metal_01",
+    "name": "Ironclad Metallurgy",
+    "industrialClass": "CLASS_A_METALLURGY",
+    "isNPC": false,
+    "credits": 10000,
+    "energy": 400,
+    "maxEnergyStorage": 1000,
+    "energyGenerationPerTick": 20,
+    "installedTurbinesR7": 0,
+    "contributedMegamachinePartsR8": 0,
+    "reputation": 100,
+    "maintenancePaidTicks": 0,
+    "inventory": {
+      "RAW_ORE": { "available": 200, "reserved": 0 },
+      "IRON_INGOT": { "available": 12, "reserved": 5 },
+      "STEEL_PLATE": { "available": 0, "reserved": 0 },
+      "HEAVY_ALLOY": { "available": 0, "reserved": 0 },
+      "MECH_FRAME": { "available": 0, "reserved": 0 },
+      "CTRL_CIRCUIT": { "available": 0, "reserved": 0 },
+      "POWER_MODULE": { "available": 0, "reserved": 0 },
+      "IND_TURBINE": { "available": 0, "reserved": 0 },
+      "MEGAMACHINE_PART": { "available": 0, "reserved": 0 }
+    },
+    "lines": [
+      {
+        "lineId": "comp_metal_01_line_1",
+        "companyId": "comp_metal_01",
+        "priority": 1,
+        "status": "RUNNING",
+        "currentRecipeId": "R1",
+        "totalBatchesProduced": 0,
+        "lastActionTick": 40,
+        "activeBatch": {
+          "recipeId": "R1",
+          "targetBatches": 1,
+          "completedBatches": 0,
+          "progressTicks": 4,
+          "totalDurationTicks": 10,
+          "energyPerTick": 2,
+          "energyRemainder": 0
+        }
+      },
+      {
+        "lineId": "comp_metal_01_line_2",
+        "companyId": "comp_metal_01",
+        "priority": 2,
+        "status": "IDLE",
+        "currentRecipeId": null,
+        "totalBatchesProduced": 0,
+        "lastActionTick": 0,
+        "activeBatch": null
+      },
+      {
+        "lineId": "comp_metal_01_line_3",
+        "companyId": "comp_metal_01",
+        "priority": 3,
+        "status": "IDLE",
+        "currentRecipeId": null,
+        "totalBatchesProduced": 0,
+        "lastActionTick": 0,
+        "activeBatch": null
+      }
+    ]
+  },
+  "recipes": [
+    {
+      "id": "R1",
+      "name": "Lingote de Hierro (IRON_INGOT)",
+      "inputs": [{ "itemId": "RAW_ORE", "quantity": 10 }],
+      "outputItem": "IRON_INGOT",
+      "outputQuantity": 5,
+      "durationTicks": 10,
+      "energyCost": 20
+    }
+  ]
+}

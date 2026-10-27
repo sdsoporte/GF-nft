@@ -1,0 +1,17 @@
+{
+  "protocolVersion": 2,
+  "matchId": "match_fixture_future",
+  "tick": 1,
+  "tickIntervalMs": 1000,
+  "company": {
+    "companyId": "comp_metal_01",
+    "name": "Ironclad Metallurgy",
+    "industrialClass": "CLASS_A_METALLURGY",
+    "credits": 1,
+    "energy": 1,
+    "maxEnergyStorage": 10,
+    "inventory": {},
+    "lines": []
+  },
+  "recipes": []
+}
