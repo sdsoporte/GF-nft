@@ -20,6 +20,7 @@ func _process(_delta: float) -> bool:
 	_test_snapshot_rendering(t)
 	_test_blocked_action_without_session(t)
 	_test_environment_prefill(t)
+	_test_command_poll_recovery(t)
 	quit(t.finish("test_main_scene"))
 	return true
 
@@ -154,5 +155,98 @@ func _test_environment_prefill(t: TestSupport) -> void:
 
 	OS.unset_environment("GF_BACKEND_URL")
 	OS.unset_environment("GF_API_TOKEN")
+	get_root().remove_child(main)
+	main.free()
+
+
+func _test_command_poll_recovery(t: TestSupport) -> void:
+	var server := TCPServer.new()
+	if not t.equal(server.listen(0, "127.0.0.1"), OK, "recovery test owns a loopback listener"):
+		return
+	var url := "http://127.0.0.1:%d" % server.get_local_port()
+	for status in [404, 500, 200, 0, 401]:
+		_check_command_failure(t, url, status)
+	server.stop()
+
+
+func _check_command_failure(t: TestSupport, url: String, status: int) -> void:
+	var main := _instantiate()
+	var label := "command failure %d" % status
+	_node(main, "UrlEdit").text = url
+	_node(main, "TokenEdit").text = ENV_TOKEN
+	_node(main, "ConnectButton").pressed.emit()
+	var client: FactoryApiClient = main.get_client()
+	var generation := client.get_generation()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_HEALTH, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("health_ok.json")
+	), label + ": health accepted")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), label + ": initial snapshot accepted")
+	if status == 401:
+		t.check(client.poll(), "ordinary state read still starts")
+		t.check(client.deliver_exchange_result(
+			generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 500, t.fixture("error_not_found.json")
+		), "ordinary state error is consumed")
+		t.check(main.ui_inventory_rows().has("IRON_INGOT: 12 (5 reserved)"), "ordinary state error preserves its snapshot")
+		t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "ordinary state error keeps its session")
+	_node(main, "LinesList").select(1)
+	_node(main, "StartButton").pressed.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_PRODUCTION, label + ": one production request")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_PRODUCTION, HTTPRequest.RESULT_SUCCESS, 202, t.fixture("ack_queued.json")
+	), label + ": queued acknowledgement accepted")
+	_node(main, "PollTimer").timeout.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_COMMAND, label + ": command poll started")
+
+	var body := t.fixture("error_not_found.json")
+	var result := HTTPRequest.RESULT_SUCCESS
+	if status == 500:
+		body = '{"error":{"code":"INTERNAL_ERROR","message":"Temporary server failure."}}'
+	elif status == 200:
+		body = "{malformed"
+	elif status == 0:
+		result = HTTPRequest.RESULT_TIMEOUT
+		body = ""
+	elif status == 401:
+		body = t.fixture("error_unauthorized.json")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, result, status, body
+	), label + ": failure consumed")
+	t.check(_node(main, "StartButton").disabled, label + ": no write from a stale view")
+	if status == 401:
+		t.equal(client.get_connection_state(), FactoryApiClient.STATE_ERROR, "401 still ends the session")
+		t.check(not client.has_credentials(), "401 still drops credentials")
+		t.equal(_node(main, "TokenEdit").text, "", "401 still clears the masked field")
+		t.check(_node(main, "PollTimer").is_stopped(), "401 still stops polling")
+		_node(main, "PollTimer").timeout.emit()
+		t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "401 never restarts a request")
+	else:
+		t.contains(main.ui_command_text(), "unknown", label + ": execution is not claimed or retried")
+		t.check(client.has_credentials(), label + ": recoverable failure keeps the session")
+		_node(main, "PollTimer").timeout.emit()
+		var recovering := client.get_pending_exchange() == FactoryApiClient.EXCHANGE_STATE
+		t.check(recovering, label + ": next timer reads state, not the missing command")
+		if recovering:
+			var fresh: Dictionary = JSON.parse_string(t.fixture("state_ok.json"))
+			fresh["matchId"] = "match_recovered_%d" % status
+			fresh["tick"] = 0
+			fresh["company"]["inventory"]["IRON_INGOT"] = {"available": 0, "reserved": 0}
+			for line in fresh["company"]["lines"]:
+				line["status"] = "IDLE"
+				line["currentRecipeId"] = null
+				line["activeBatch"] = null
+				line["totalBatchesProduced"] = 0
+				line["lastActionTick"] = 0
+			t.check(client.deliver_exchange_result(
+				generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(fresh)
+			), label + ": restarted server snapshot accepted")
+			t.equal(_node(main, "MatchLabel").text, "Match " + fresh["matchId"], label + ": new match rendered")
+			t.equal(_node(main, "TickLabel").text, "Tick 0 (1000 ms)", label + ": new server clock rendered")
+			t.check(main.ui_inventory_rows().has("IRON_INGOT: 0"), label + ": new inventory rendered")
+			t.check(not _node(main, "StartButton").disabled, label + ": fresh state restores Start")
+			_node(main, "PollTimer").timeout.emit()
+			t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_STATE, label + ": no production replay")
+	main.disconnect_from_server()
 	get_root().remove_child(main)
 	main.free()

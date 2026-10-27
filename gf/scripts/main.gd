@@ -271,6 +271,11 @@ func _on_command_status_changed(command: Dictionary) -> void:
 
 
 func _on_request_failed(message: String, fatal: bool) -> void:
+	if not fatal and not _pending_command_id.is_empty():
+		# A lost status response does not prove that the economic command failed.
+		var unknown_command := _pending_command_id
+		_clear_snapshot_ui()
+		_command_label.text = "Command %s status is unknown; refreshing server state. No production was retried." % unknown_command
 	_show_error(message)
 	if fatal:
 		_poll_timer.stop()
