@@ -456,7 +456,13 @@ export class SimulatorEngine {
         batch.progressTicks = 0;
         line.status = 'RUNNING';
       } else {
-        // Paused due to material shortage
+        // Material shortage: the next batch never started because its inputs
+        // could not be deducted, so no active batch may remain. Retaining the
+        // completed batch here let RESUME_PRODUCTION_LINE replay completion
+        // and credit output for free (issue #1). The line waits in PAUSED
+        // with no active batch; the operator restarts it with
+        // SET_PRODUCTION_TARGET, which deducts inputs before creating a batch.
+        line.activeBatch = null;
         line.status = 'PAUSED';
       }
     } else {
