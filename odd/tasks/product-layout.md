@@ -1,6 +1,6 @@
 # Product repository layout
 Archive the obsolete web demo and separate active Godot, backend, contract and integration ownership without changing runtime behavior.
-Branch: `refactor/product-layout` from `4a116ec` | Delivery: local reviewable units on the established feature-branch chain, no new remote delivery | Checks: Bun/backend, Godot headless, integration, Docker, static path/scope checks and independent verification.
+Branch: `refactor/product-layout` from `4a116ec` | Delivery: remote push/PR/merge authorized, protected-main feature-branch chain tracked in `product-layout-delivery.md` | Checks: Bun/backend, Godot headless, integration, Docker, static path/scope checks and independent verification.
 
 ## Specs
 
@@ -82,3 +82,5 @@ Branch: `refactor/product-layout` from `4a116ec` | Delivery: local reviewable un
 - **L15 — Final proof / closure**: explicitly authorized corrected job18 PASS. Docker binding actually changed32773→32774 on restart; refreshed URL completed stored match/grant continuity, old-session denial, fresh login, revocation/logout and runtime image exclusions. Original job17 separately passed real Godot batch/visible inventory. Both owned containers removed by captured-ID EXIT cleanup; no live/named volume used. Source45f3ac0 unchanged, independent per-S PASS recorded in L14; parent+independent547 pass/7skip/1todo/0fail, lint/build/frozen0,388 Godot+boot0, LSP3 clean, docs14 guides0broken.7 skips = out-of-scope #3–#5 plus retained legacy-only rotation;1 todo = #5 economics. Native ASSESS unavailable/package-local-binary-missing, no native authority/approval or delivery claim. All source outcomes complete locally; no push/PR/merge/deploy. Backup/recovery and CI-local-Godot caveats remain documented.
 
 - **L16 — Durable local evidence**: verified closure recorded in `80f2c5622d2b6c291578b71d2d604658eca28f24`; R1 backup and R2-R6 source/evidence commits are linked in Tasks. R7 bookkeeping is complete; a final metadata-only commit links these actual commit references. All intended tasks done (obsolete browser T5 remains dropped), all worker/jobs finished, owned containers cleaned, no source change after independently verified45f3ac0. Nothing published; review native package remains unavailable, not approved.
+
+- **L17 — Remote delivery authorization (verbatim)**: "ok, integra todo para qeu quede formalmente completo, push, pr , merge segun necesario." Human then explicitly authorized required labels/issue metadata and closing#2/#7/new organization issue only after verified main. Prior local-only restriction is superseded for this delivery; no deploy/live migration or native review consent is implied. See odd/tasks/product-layout-delivery.md.

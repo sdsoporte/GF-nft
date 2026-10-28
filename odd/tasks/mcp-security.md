@@ -1,6 +1,6 @@
 # MCP tenant isolation and credentials
 Fix issues #2 and #7 in order, with one configured server-side owner and expiring sessions; no public signup.
-Tracker: `chore/mcp-security` | Children: local work-unit branches only | Delivery: `auto-chain` / `feature-branch-chain`, no new push/PR/merge authorization | Checks: Bun focused tests + suite, lint/build, active LSP, differential compatibility, one independent final verifier.
+Tracker: `chore/mcp-security` | Children: local work-unit branches only | Delivery: `auto-chain` / `feature-branch-chain`, remote push/PR/merge now authorized via product-layout-delivery.md | Checks: Bun focused tests + suite, lint/build, active LSP, differential compatibility, one independent final verifier.
 
 ## Specs
 
@@ -72,3 +72,5 @@ Human choices (verbatim):
 - **L15 — Layout/coverage reconciliation**: R3 `d56c72a`, R4 `7e797e9`; all runtime core37 files unchanged and server modules import-only. Current #7 matrix now pins existing passing real-server, owner HTTP and archive/dependency-boundary assertions. The old isolated legacy re-registration test remains skipped and is explicitly NOT claimed fixed; no runtime mutation was made to satisfy that obsolete browser assumption. Remote issue #7 remains unclosed. S12/S13 keep original quotes plus accepted source-only archive interpretation; full independent T6 remains next.
 
 - **L16 — T6 current-scope closure**: source checkpoint45f3ac0 after layout unitsd56c72a/7e797e9/45f3ac0. Independent full-document verifier PASS every current S1-S19, noting its S15 runtime claim only in-process until parent probe. Parent actual game/issuance job17 PASS but cached host endpoint failed after restart; no false pass. Human explicitly selected "Run one corrected probe"; job18 observed dynamic32773→32774 and completed stored policy/match, session invalidation, revocation/logout with PASS. No runtime code fix was needed.7 skips/1todo retained/out of scope as documented, native review package unavailable/no approval, no new publishing/merge/deploy/live migration. Source-only archive supersedes old active frontend task; #7 is not remotely closed nor every legacy SDK behavior declared fixed.
+
+- **L17 — Remote delivery authorization (verbatim)**: "ok, integra todo para qeu quede formalmente completo, push, pr , merge segun necesario." Human then explicitly authorized required labels/issue metadata and closing#2/#7/new organization issue only after verified main. Prior local-only restriction is superseded for this delivery; no deploy/live migration or native review consent is implied. See odd/tasks/product-layout-delivery.md.
