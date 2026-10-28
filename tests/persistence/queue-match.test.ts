@@ -162,7 +162,7 @@ test('reopening the database restores the ack ledger, command statuses and the c
       assert.equal(second.store.repositories.matches.load(MATCH_ID)?.historyCursor, 1);
 
       // The adopted cursor never regresses, even though the rebuilt engine has
-      // no execution history yet (engine hydration is T4).
+      // no execution history yet: nothing had executed before the first close
       reopened.advanceTicks(1);
       assert.equal(second.store.repositories.matches.load(MATCH_ID)?.historyCursor, 1);
       assert.equal(second.store.repositories.commandResults.count(MATCH_ID), 1);
@@ -286,7 +286,7 @@ test('the 1024-acknowledgement boundary behaves identically with persistence on 
       assert.equal(reopened.getAcknowledgedRequestCount(), MAX_ACKNOWLEDGED_REQUESTS);
       assert.deepEqual(reopened.requestProduction(productionPayload({ requestId: 'limit-0' })), firstAck);
       assert.equal(reopened.requestProduction(productionPayload({ requestId: 'limit-overflow' })).kind, 'command_limit');
-      assert.equal(reopened.engine.getCommandQueue().getPendingCount(), 0);
+      assert.equal(reopened.engine.getCommandQueue().getPendingCount(), MAX_ACKNOWLEDGED_REQUESTS);
       assert.equal(second.store.repositories.ackLedger.count(MATCH_ID), MAX_ACKNOWLEDGED_REQUESTS);
     } finally {
       closeDatabase(second.database);
