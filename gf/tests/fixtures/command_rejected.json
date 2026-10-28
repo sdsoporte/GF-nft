@@ -1,0 +1,6 @@
+{
+  "commandId": "cmd_fixture_queued",
+  "status": "rejected",
+  "executedAtTick": 44,
+  "errorCode": "ERR_MISSING_INPUTS"
+}

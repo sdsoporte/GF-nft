@@ -2,6 +2,21 @@
 
 Godot is a client. One backend process owns the match, its clock and all mutations. This development slice exposes one metallurgy factory and one R1 batch command; it is not the finished multiplayer/authentication system.
 
+## Quick path
+
+From the repository root, choose one backend mode and keep the same token for
+Godot:
+
+```bash
+export GF_API_TOKEN="$(openssl rand -hex 32)"
+bun run server
+```
+
+Or use `docker compose up --build --detach --wait` instead of `bun run server`.
+Open `gf/project.godot`, run its main scene and connect to
+`http://127.0.0.1:8787` with that token. The complete startup and check commands
+are in [`../README.md`](../README.md) and [`../gf/README.md`](../gf/README.md).
+
 ## Run boundary
 
 - Bun 1.4.2 runs the TypeScript service independently of React and Godot.

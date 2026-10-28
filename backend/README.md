@@ -50,6 +50,7 @@ curl -s -H "Authorization: Bearer $GF_API_TOKEN" \
 | `GF_API_TOKEN` | yes | Bearer token for every `/v1/` route. At least 32 printable characters, no spaces. Never logged, committed or baked into the image. |
 | `GF_HOST` | no | Bind address, default `127.0.0.1`. The image sets `0.0.0.0` so the published port can reach it. |
 | `GF_PORT` | no | Listen port, default `8787`. |
+| `GF_SQLITE_PATH` | no | SQLite file for persisted match state; migrations run on boot. Unset = in-memory match. `compose.yaml` defaults it to `/data/factory.db` on the named volume. |
 | `GF_PUBLISHED_PORT` | no | Host port published by `compose.yaml`, default `8787`, always on `127.0.0.1`. |
 
 Invalid configuration exits with code `1` and a message that names the variable
@@ -109,21 +110,50 @@ curl -s http://127.0.0.1:8787/health
 ```
 
 - Image: official pinned `oven/bun:1.4.2`, running as the non-root `bun` user.
-- Contents: `backend/`, `src/domain/`, `src/engine/`, `package.json`. No UI, no
-  Godot project, no `.env`, no `node_modules`, no lockfile and no dependency
-  install: the service only needs Bun built-ins.
+- Contents: `backend/`, `src/domain/`, `src/engine/`, `src/persistence/`,
+  `package.json`. No UI, no Godot project, no `.env`, no `node_modules`, no
+  lockfile and no dependency install: the service only needs Bun built-ins.
 - Binds `0.0.0.0:8787` inside the container; Compose publishes
   `127.0.0.1:${GF_PUBLISHED_PORT:-8787}`.
+- Compose mounts the named volume `factory-data` at `/data` and sets
+  `GF_SQLITE_PATH=/data/factory.db`, so `docker compose restart` re-adopts the
+  same match instead of starting a new one.
 - Healthcheck calls the unauthenticated `/health` route.
 - `compose.yaml` refuses to start without `GF_API_TOKEN`.
 
+## Persistence
+
+Set `GF_SQLITE_PATH` to persist the match to a SQLite file (`bun:sqlite`, no
+extra dependency). On boot the server creates the parent directory, opens the
+database, applies the versioned migrations (3 so far) and adopts an existing
+match — identity, seed, tick interval, command queue, processed idempotency
+keys, acknowledgement ledger, execution history and the full engine state — or
+persists the opening snapshot of a fresh match. Every accepted command and
+every tick commits one atomic unit, so an exact retry after a restart returns
+the same acknowledgement instead of duplicating a movement.
+
+- SQLite is the source of truth: `SqliteLocalSettlementProvider` requires a
+  database handle from `openDatabase()` + `migrate()` and writes lots, escrows,
+  reservations and balances through the repositories in one transaction. Durable
+  lot ids and EIP-712 nonces live in `settlement_counters` / `account_nonces`;
+  the settlement circuit-breaker latch is process-local by design — its
+  evidence rows re-trip it after a restart.
+- `InMemorySettlementProvider` is the frozen browser-demo fork used by the React
+  prototype. It is not persistence and must never be described as such.
+- A wired match hydrates the engine from rows (`SimulatorEngine.hydrate`);
+  there is no second ledger.
+- One process owns a database file: two servers on the same file would collide
+  on the acknowledgement ledger.
+
 ## Limits of this slice
 
-- State is in memory: restarting the process or container starts a new match with
-  a new match ID. Docker is deployment, not persistence.
+- Without `GF_SQLITE_PATH` the state is in memory and restarting starts a new
+  match (Docker is deployment, not persistence). With it — the compose default —
+  the state lives in SQLite on the volume and a restart re-adopts the same match.
 - One factory, one recipe, one batch per request. Contracts, wallets, NPC
-  automation, multi-tenant grants, SQLite durability and the external game MCP
-  stay in the issue backlog; this slice does not close issues #6, #7 or #8.
+  automation, multi-tenant grants and the external game MCP stay in the issue
+  backlog; issue #8's SQLite durability now ships here (see Persistence), while
+  issue closure remains the maintainer's decision.
 - Loopback bind and a shared bearer token are development conveniences, not
   production authentication. Do not expose the published port to the internet.
 

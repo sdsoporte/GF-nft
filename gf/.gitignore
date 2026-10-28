@@ -1,0 +1,7 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Local editor plugin setup (Funplay MCP) is installed per machine, not vendored.
+override.cfg
+addons/funplay_mcp/

@@ -8,6 +8,8 @@
 export const TOKEN_ENV_VAR = 'GF_API_TOKEN';
 export const HOST_ENV_VAR = 'GF_HOST';
 export const PORT_ENV_VAR = 'GF_PORT';
+/** SQLite database file. Unset disables persistence (in-memory behaviour). */
+export const SQLITE_PATH_ENV_VAR = 'GF_SQLITE_PATH';
 
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 8787;
@@ -20,6 +22,12 @@ export interface FactoryConfig {
   readonly host: string;
   readonly port: number;
   readonly token: string;
+  /**
+   * Absolute or relative database file path. Absent means persistence is
+   * disabled; the field is omitted entirely so existing configuration shapes
+   * stay byte-identical (A3 backward compatibility).
+   */
+  readonly sqlitePath?: string;
 }
 
 export type FactoryConfigResult =
@@ -48,6 +56,29 @@ function readPort(env: Record<string, string | undefined>, errors: string[]): nu
   return parsed;
 }
 
+/**
+ * Read `GF_SQLITE_PATH`. Unset (or not a string) means persistence is disabled.
+ * A set value is trimmed and must be a usable file path; creating the parent
+ * directory is boot's job, not configuration's.
+ */
+function readSqlitePath(
+  env: Record<string, string | undefined>,
+  errors: string[],
+): string | undefined {
+  const raw = env[SQLITE_PATH_ENV_VAR];
+  if (typeof raw !== 'string') return undefined;
+  const sqlitePath = raw.trim();
+  if (sqlitePath.length === 0) {
+    errors.push(`${SQLITE_PATH_ENV_VAR} must not be empty when set.`);
+    return undefined;
+  }
+  if (sqlitePath.includes('\u0000')) {
+    errors.push(`${SQLITE_PATH_ENV_VAR} must not contain NUL characters.`);
+    return undefined;
+  }
+  return sqlitePath;
+}
+
 function readToken(env: Record<string, string | undefined>, errors: string[]): string {
   const raw = env[TOKEN_ENV_VAR];
   const token = typeof raw === 'string' ? raw : '';
@@ -72,9 +103,13 @@ export function readFactoryConfig(env: Record<string, string | undefined>): Fact
   const token = readToken(env, errors);
   const host = readHost(env, errors);
   const port = readPort(env, errors);
+  const sqlitePath = readSqlitePath(env, errors);
 
   if (errors.length > 0) {
     return { ok: false, errors };
   }
-  return { ok: true, config: { host, port, token } };
+  return {
+    ok: true,
+    config: sqlitePath === undefined ? { host, port, token } : { host, port, token, sqlitePath },
+  };
 }

@@ -29,6 +29,7 @@ function cleanEnv(overrides: Record<string, string> = {}): Record<string, string
   delete env.GF_API_TOKEN;
   delete env.GF_HOST;
   delete env.GF_PORT;
+  delete env.GF_SQLITE_PATH;
   return { ...env, ...overrides };
 }
 
@@ -116,6 +117,7 @@ test('the help text documents every server environment variable and route', () =
     'GF_API_TOKEN',
     'GF_HOST',
     'GF_PORT',
+    'GF_SQLITE_PATH',
     '/health',
     '/v1/state',
     '/v1/production',
