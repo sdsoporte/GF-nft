@@ -3,11 +3,11 @@ import { OwnerSessions, type OwnerSessionsHandle } from './ownerSessions.ts';
 import { GrantService } from './grantService.ts';
 import { OWNER_ID_PATTERN } from './config.ts';
 import type { FactoryMatch } from './match.ts';
-import { McpGateway } from '../../src/mcp/McpGateway.ts';
-import { openDatabase, closeDatabase } from '../../src/persistence/database.ts';
-import { migrate } from '../../src/persistence/migrations.ts';
-import { createRepositories } from '../../src/persistence/repos/index.ts';
-import type { MatchStore } from '../../src/persistence/matchStore.ts';
+import { McpGateway } from './mcp/McpGateway.ts';
+import { openDatabase, closeDatabase } from './persistence/database.ts';
+import { migrate } from './persistence/migrations.ts';
+import { createRepositories } from './persistence/repos/index.ts';
+import type { MatchStore } from './persistence/matchStore.ts';
 
 export interface McpRuntime {
   readonly sessions: OwnerSessionsHandle;
