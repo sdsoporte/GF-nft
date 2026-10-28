@@ -214,6 +214,8 @@ export type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K
 export type EnqueueCommandInput = DistributiveOmit<GameCommand, 'sequenceNumber'>;
 
 export interface CommandExecutionResult {
+  /** Absent only on legacy history whose owner cannot be established safely. */
+  readonly companyId?: string;
   readonly commandId: string;
   readonly idempotencyKey: string;
   readonly executedAtTick: number;

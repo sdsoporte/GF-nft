@@ -6,7 +6,7 @@
  * regression and asserts that the pinned title is still there with the expected
  * coverage kind.
  *
- * - `green`   — the issue is closed and its owning file asserts real behaviour.
+ * - `green`   — a local fix is asserted by its owning file (remote closure is separate).
  * - `pending` — the issue is still open (assumption A1 of
  *               `odd/tasks/qa-test-suite.md`): the entry must stay skipped/todo
  *               and must name its issue, so coverage is never claimed green
@@ -57,7 +57,7 @@ interface MatrixEntry {
  */
 const EXPECTED_KIND: Readonly<Record<number, CoverageKind>> = {
   1: 'green',
-  2: 'pending',
+  2: 'green',
   3: 'pending',
   4: 'pending',
   5: 'pending',
@@ -89,36 +89,36 @@ const MATRIX: readonly MatrixEntry[] = [
     issue: 2,
     file: 'tests/mcp/isolation.test.ts',
     titleFragment: 'get_factory_overview rejects a company_id that is not the grant company',
-    kind: 'pending',
-    note: 'issue #2 open: read tools trust the payload company_id instead of the grant company',
+    kind: 'green',
+    note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
     file: 'tests/mcp/isolation.test.ts',
     titleFragment: 'get_inventory rejects a company_id that is not the grant company',
-    kind: 'pending',
-    note: 'issue #2 open: get_inventory does not bind the payload company_id to the grant company',
+    kind: 'green',
+    note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
     file: 'tests/mcp/isolation.test.ts',
     titleFragment: 'get_production_lines rejects a company_id that is not the grant company',
-    kind: 'pending',
-    note: 'issue #2 open: get_production_lines does not bind the payload company_id to the grant company',
+    kind: 'green',
+    note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
     file: 'tests/mcp/isolation.test.ts',
     titleFragment: 'get_contracts rejects a company_id that is not the grant company',
-    kind: 'pending',
-    note: 'issue #2 open: get_contracts does not bind the payload company_id to the grant company',
+    kind: 'green',
+    note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
     file: 'tests/mcp/isolation.test.ts',
     titleFragment: 'get_action_history is scoped to the grant company',
-    kind: 'pending',
-    note: 'issue #2 open: action history leaks commands of other companies',
+    kind: 'green',
+    note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
 
   // ------------------------------------------------------------------ issue #3

@@ -475,7 +475,7 @@ export class McpGateway {
 
       case 'get_action_history': {
         const parsed = GetActionHistorySchema.parse(rawParams);
-        const history = this.engine.getExecutionHistory(parsed.last_n_ticks);
+        const history = this.engine.getCompanyExecutionHistory(grant.companyId, parsed.last_n_ticks);
 
         return this.recordSuccess(startTime, currentTick, grant, tool, payloadHash, {
           history: history.map((h) => ({

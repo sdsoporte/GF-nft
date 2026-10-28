@@ -82,12 +82,12 @@
     ],
     "contracts": [],
     "executionHistory": [
-      {"commandId":"cmd_class-b-starvation-and-priority_1","executedAtTick":1,"idempotencyKey":"idem_class-b-starvation-and-priority_1","success":true},
-      {"commandId":"cmd_class-b-starvation-and-priority_2","executedAtTick":1,"idempotencyKey":"idem_class-b-starvation-and-priority_2","success":true},
-      {"commandId":"cmd_class-b-starvation-and-priority_3","executedAtTick":12,"idempotencyKey":"idem_class-b-starvation-and-priority_3","success":true},
-      {"commandId":"cmd_class-b-starvation-and-priority_4","executedAtTick":14,"idempotencyKey":"idem_class-b-starvation-and-priority_4","success":true},
-      {"commandId":"cmd_class-b-starvation-and-priority_5","executedAtTick":16,"idempotencyKey":"idem_class-b-starvation-and-priority_5","success":true},
-      {"commandId":"cmd_class-b-starvation-and-priority_6","executedAtTick":16,"idempotencyKey":"idem_class-b-starvation-and-priority_6","success":true}
+      {"commandId":"cmd_class-b-starvation-and-priority_1","companyId":"gf_assembly","executedAtTick":1,"idempotencyKey":"idem_class-b-starvation-and-priority_1","success":true},
+      {"commandId":"cmd_class-b-starvation-and-priority_2","companyId":"gf_assembly","executedAtTick":1,"idempotencyKey":"idem_class-b-starvation-and-priority_2","success":true},
+      {"commandId":"cmd_class-b-starvation-and-priority_3","companyId":"gf_assembly","executedAtTick":12,"idempotencyKey":"idem_class-b-starvation-and-priority_3","success":true},
+      {"commandId":"cmd_class-b-starvation-and-priority_4","companyId":"gf_assembly","executedAtTick":14,"idempotencyKey":"idem_class-b-starvation-and-priority_4","success":true},
+      {"commandId":"cmd_class-b-starvation-and-priority_5","companyId":"gf_assembly","executedAtTick":16,"idempotencyKey":"idem_class-b-starvation-and-priority_5","success":true},
+      {"commandId":"cmd_class-b-starvation-and-priority_6","companyId":"gf_assembly","executedAtTick":16,"idempotencyKey":"idem_class-b-starvation-and-priority_6","success":true}
     ],
     "globalProject": {"completedAtTick":null,"deliveredMegamachineParts":0,"isVictorious":false,"requiredMegamachineParts":12},
     "netWorth": [

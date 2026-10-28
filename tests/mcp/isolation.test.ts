@@ -1,18 +1,6 @@
 /**
- * S4 (issue #10): cross-tenant isolation.
- *
- * Two different things live here:
- *
- * 1. Paths where isolation IS enforced today — write tools carry the grant's
- *    `companyId`, so the engine refuses foreign lines and foreign contracts.
- *    Those are asserted green.
- * 2. Paths where isolation is NOT enforced — the read tools trust the
- *    `company_id` supplied in the payload (open P0 issue #2), the gateway
- *    publishes drafts as market offers (#3), offers are not bound to their
- *    target buyer (#4) and re-registering a grant leaves the previous token
- *    live (#7). Those entries are skipped with the issue reference and encode
- *    the contract that the fix must satisfy. They are never asserted as
- *    current behaviour and they never fail CI.
+ * Cross-tenant regression contracts: private reads and engine-enforced writes
+ * are asserted. Adjacent unfixed issues #3/#4/#7 remain explicitly skipped.
  */
 
 import assert from 'node:assert/strict';
@@ -139,48 +127,45 @@ describe('isolation enforced today (write path)', () => {
   });
 });
 
-describe('cross-tenant reads — pending issue #2', () => {
-  const issue2 =
-    'pending: open P0 issue #2 — read tools do not bind the payload company_id to the grant company';
+describe('cross-tenant reads — issue #2 regression', () => {
 
-  test('get_factory_overview rejects a company_id that is not the grant company', { skip: issue2 }, async () => {
+  test('get_factory_overview rejects a company_id that is not the grant company', async () => {
     const grant = makeGrant();
     const { gateway } = createGatewayFixture([grant]);
 
     const response = await gateway.invokeTool(grant.token, 'get_factory_overview', overviewParams(TENANT_B));
 
-    // Exact error code is a decision for issue #2; the denial itself is not.
-    assert.equal(response.success, false);
+    expectError(response, 'ERR_RESOURCE_NOT_ALLOWED');
   });
 
-  test('get_inventory rejects a company_id that is not the grant company', { skip: issue2 }, async () => {
+  test('get_inventory rejects a company_id that is not the grant company', async () => {
     const grant = makeGrant();
     const { gateway } = createGatewayFixture([grant]);
 
     const response = await gateway.invokeTool(grant.token, 'get_inventory', overviewParams(TENANT_B));
 
-    assert.equal(response.success, false);
+    expectError(response, 'ERR_RESOURCE_NOT_ALLOWED');
   });
 
-  test('get_production_lines rejects a company_id that is not the grant company', { skip: issue2 }, async () => {
+  test('get_production_lines rejects a company_id that is not the grant company', async () => {
     const grant = makeGrant();
     const { gateway } = createGatewayFixture([grant]);
 
     const response = await gateway.invokeTool(grant.token, 'get_production_lines', overviewParams(TENANT_B));
 
-    assert.equal(response.success, false);
+    expectError(response, 'ERR_RESOURCE_NOT_ALLOWED');
   });
 
-  test('get_contracts rejects a company_id that is not the grant company', { skip: issue2 }, async () => {
+  test('get_contracts rejects a company_id that is not the grant company', async () => {
     const grant = makeGrant();
     const { gateway } = createGatewayFixture([grant]);
 
     const response = await gateway.invokeTool(grant.token, 'get_contracts', overviewParams(TENANT_B));
 
-    assert.equal(response.success, false);
+    expectError(response, 'ERR_RESOURCE_NOT_ALLOWED');
   });
 
-  test('get_action_history is scoped to the grant company', { skip: issue2 }, async () => {
+  test('get_action_history is scoped to the grant company', async () => {
     const grant = makeGrant();
     const seller = makeGrant({
       companyId: TENANT_B,

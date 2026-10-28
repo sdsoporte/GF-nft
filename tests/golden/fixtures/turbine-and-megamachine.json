@@ -67,9 +67,9 @@
     ],
     "contracts": [],
     "executionHistory": [
-      {"commandId":"cmd_turbine-and-megamachine_1","executedAtTick":1,"idempotencyKey":"idem_turbine-and-megamachine_1","success":true},
-      {"commandId":"cmd_turbine-and-megamachine_2","executedAtTick":901,"idempotencyKey":"idem_turbine-and-megamachine_2","success":true},
-      {"commandId":"cmd_turbine-and-megamachine_3","executedAtTick":905,"idempotencyKey":"idem_turbine-and-megamachine_3","success":true}
+      {"commandId":"cmd_turbine-and-megamachine_1","companyId":"gf_forge","executedAtTick":1,"idempotencyKey":"idem_turbine-and-megamachine_1","success":true},
+      {"commandId":"cmd_turbine-and-megamachine_2","companyId":"gf_forge","executedAtTick":901,"idempotencyKey":"idem_turbine-and-megamachine_2","success":true},
+      {"commandId":"cmd_turbine-and-megamachine_3","companyId":"gf_forge","executedAtTick":905,"idempotencyKey":"idem_turbine-and-megamachine_3","success":true}
     ],
     "globalProject": {"completedAtTick":905,"deliveredMegamachineParts":12,"isVictorious":true,"requiredMegamachineParts":12},
     "netWorth": [

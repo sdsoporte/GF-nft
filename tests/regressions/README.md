@@ -17,10 +17,13 @@ never red-in-CI.
 
 ## Status
 
+Green means the regression is runnable on this branch, not that a remote issue
+was automatically closed. Issue #2 is fixed locally; its publication is pending.
+
 | Issue | Status | Issue title | Files holding its tests | What must change when the fix lands |
 | --- | --- | --- | --- | --- |
 | #1 | green | [P0][Motor] Impedir creación de recursos sin insumos al reanudar una línea | `tests/engine-material-shortage.test.ts` | Nothing. The regression is asserted; a failure here means the #1 fix regressed. |
-| #2 | pending | [P0][Seguridad MCP] Aislar lecturas e historial por empresa autenticada | `tests/mcp/isolation.test.ts` | Delete `skip: issue2` from the five read-tool tests (`get_factory_overview`, `get_inventory`, `get_production_lines`, `get_contracts`, `get_action_history`), confirm the exact denial error code issue #2 decides, then flip this row and the five entries in `p0-matrix.test.ts` to `green`. |
+| #2 | green | [P0][Seguridad MCP] Aislar lecturas e historial por empresa autenticada | `tests/mcp/isolation.test.ts` | Asserted locally: private reads reject foreign targets and history filters durable ownership after recovery. Remote closure follows publication. |
 | #3 | pending | [P0][Contratos] Separar borradores MCP de ofertas publicadas y exigir aprobación humana | `tests/mcp/isolation.test.ts` | Remove the `skip:` from the draft-publication test once `draft_supply_offer` stops publishing a PENDING market contract, then flip this row and its matrix entry to `green`. |
 | #4 | pending | [P0][Contratos] Validar comprador destinatario, propiedad y autocontratación | `tests/mcp/isolation.test.ts`, `tests/engine/contracts-lifecycle.test.ts` | Remove the `skip:` from the targeted-offer, seller-self-acceptance and MCP third-company acceptance tests once acceptance validates `targetBuyerId` and self-dealing, then flip this row and its three matrix entries to `green`. |
 | #5 | pending | [P0][Economía] Garantizar conservación de créditos en contratos y entregas parciales | `tests/engine/contracts-expiration.test.ts`, `tests/property/credits.test.ts` | Remove the two `skip:` markers in `contracts-expiration.test.ts` and convert the `test.todo` in `property/credits.test.ts` into an asserted test once default settlement pays the delivered units and conserves credits; then flip this row and its three matrix entries to `green`. |

@@ -156,6 +156,8 @@ export interface AckLedgerWrite {
 
 /** One execution-history row (`match_command_results`) as read back. */
 export interface CommandResultRecord {
+  /** Legacy rows are deliberately unowned; never infer a tenant at restore. */
+  readonly companyId?: string;
   readonly matchId: string;
   readonly historyIndex: number;
   readonly commandId: string;

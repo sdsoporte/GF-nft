@@ -161,6 +161,7 @@ function toExecutionResult(row: CommandResultRecord): CommandExecutionResult {
     success: row.success,
     ...(row.errorCode === undefined ? {} : { errorCode: row.errorCode }),
     ...(row.errorMessage === undefined ? {} : { errorMessage: row.errorMessage }),
+    ...(row.companyId === undefined ? {} : { companyId: row.companyId }),
   };
 }
 

@@ -18,12 +18,12 @@ import { runAtomic } from '../transaction.ts';
 import { assertNonNegativeInteger, assertNonEmptyString } from './validate.ts';
 
 const COLUMNS = `match_id, history_index, command_id, idempotency_key, executed_at_tick,
-  success, error_code, error_message`;
+  success, error_code, error_message, company_id`;
 
 const SELECT_ALL_SQL = `SELECT ${COLUMNS} FROM match_command_results
   WHERE match_id = ? ORDER BY history_index ASC`;
 const COUNT_SQL = 'SELECT COUNT(*) AS total FROM match_command_results WHERE match_id = ?';
-const INSERT_SQL = `INSERT INTO match_command_results (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SQL = `INSERT INTO match_command_results (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 interface CommandResultRow {
   readonly match_id: string;
@@ -34,6 +34,7 @@ interface CommandResultRow {
   readonly success: number;
   readonly error_code: string | null;
   readonly error_message: string | null;
+  readonly company_id: string | null;
 }
 
 /**
@@ -50,6 +51,7 @@ function toCommandResult(row: CommandResultRow): CommandResultRecord {
     success: row.success === 1,
     ...(row.error_code === null ? {} : { errorCode: row.error_code }),
     ...(row.error_message === null ? {} : { errorMessage: row.error_message }),
+    ...(row.company_id === null ? {} : { companyId: row.company_id }),
   };
 }
 
@@ -63,6 +65,7 @@ export class CommandResultRepository {
       assertNonEmptyString(input.matchId, 'matchId');
       assertNonEmptyString(input.commandId, 'commandId');
       assertNonEmptyString(input.idempotencyKey, 'idempotencyKey');
+      if (input.companyId !== undefined) assertNonEmptyString(input.companyId, 'companyId');
       assertNonNegativeInteger(input.historyIndex, 'historyIndex');
       assertNonNegativeInteger(input.executedAtTick, 'executedAtTick');
     }
@@ -79,6 +82,7 @@ export class CommandResultRepository {
           input.success ? 1 : 0,
           input.errorCode ?? null,
           input.errorMessage ?? null,
+          input.companyId ?? null,
         );
       }
     });

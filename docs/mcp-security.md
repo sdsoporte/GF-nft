@@ -20,9 +20,23 @@ a valid grant with `market:read` can see the existing sanitized pending quotes
 from other companies. This does not waive token, scope or identity validation.
 Line allowlists and cooldowns retain their existing write-only behavior.
 
+## Private action history
+
+Every newly executed or rejected command carries its submitting company as
+provenance. Migration 4 stores this additive `company_id` metadata with command
+results; restart recovery preserves it. `get_action_history` filters ownership
+before applying its existing result limit, so another company's recent commands
+cannot displace the caller's history. Global engine history retains its existing
+ordering and limit behavior.
+
+Legacy results have unknown ownership (NULL/absent), are retained globally and
+are excluded from all private histories. No tenant is guessed from a command ID
+or idempotency key. The migration does not change inventories, credits or queue
+counters. `schema.sql` remains the version-1 baseline; versioned migrations own
+subsequent schema additions.
+
 ## Work in progress
 
-Tenant filtering of history results is the next work unit (issue #2); matching
-its request company alone does not prevent global history exposure. Server-side
-owner sessions, hash-only credentials and isolated browser mocks follow in
-issue #7. This first slice does not claim either issue fully fixed.
+Issue #2 is asserted locally, pending independent final verification/publication.
+Server-side owner sessions, hash-only credentials and isolated browser mocks
+follow in issue #7; the local browser gateway is not a real credential boundary.

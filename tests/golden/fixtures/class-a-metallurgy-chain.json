@@ -66,9 +66,9 @@
     ],
     "contracts": [],
     "executionHistory": [
-      {"commandId":"cmd_class-a-metallurgy-chain_1","executedAtTick":1,"idempotencyKey":"idem_class-a-metallurgy-chain_1","success":true},
-      {"commandId":"cmd_class-a-metallurgy-chain_2","executedAtTick":1,"idempotencyKey":"idem_class-a-metallurgy-chain_2","success":true},
-      {"commandId":"cmd_class-a-metallurgy-chain_3","executedAtTick":45,"idempotencyKey":"idem_class-a-metallurgy-chain_3","success":true}
+      {"commandId":"cmd_class-a-metallurgy-chain_1","companyId":"gf_forge","executedAtTick":1,"idempotencyKey":"idem_class-a-metallurgy-chain_1","success":true},
+      {"commandId":"cmd_class-a-metallurgy-chain_2","companyId":"gf_assembly","executedAtTick":1,"idempotencyKey":"idem_class-a-metallurgy-chain_2","success":true},
+      {"commandId":"cmd_class-a-metallurgy-chain_3","companyId":"gf_forge","executedAtTick":45,"idempotencyKey":"idem_class-a-metallurgy-chain_3","success":true}
     ],
     "globalProject": {"completedAtTick":null,"deliveredMegamachineParts":0,"isVictorious":false,"requiredMegamachineParts":12},
     "netWorth": [

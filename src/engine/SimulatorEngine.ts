@@ -630,6 +630,12 @@ export class SimulatorEngine {
     return this.commandResults.slice(-limit);
   }
 
+  /** Private history excludes unowned legacy results; limit applies after filtering. */
+  public getCompanyExecutionHistory(companyId: string, limit?: number): CommandExecutionResult[] {
+    const owned = this.commandResults.filter((result) => result.companyId === companyId);
+    return limit ? owned.slice(-limit) : owned;
+  }
+
   /**
    * Enqueue command into authoritative queue
    */
@@ -656,7 +662,7 @@ export class SimulatorEngine {
     const readyCommands = this.commandQueue.dequeueForTick(this.currentTick);
     for (const cmd of readyCommands) {
       const result = this.executeCommand(cmd);
-      this.commandResults.push(result);
+      this.commandResults.push({ ...result, companyId: cmd.companyId });
     }
 
     // Step 2: Natural raw ore extraction for all companies
