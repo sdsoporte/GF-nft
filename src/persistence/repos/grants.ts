@@ -1,6 +1,12 @@
 /**
- * `mcp_grants` + `mcp_audit_logs` repository (A5: implemented and tested at the
- * repository layer only; wiring `McpGateway` into the backend is issue #9).
+ * `mcp_grants` + `mcp_audit_logs` repository.
+ *
+ * Grant secrets are never stored: `token_hash` holds the SHA-256 digest of the
+ * issued `gf_mcp_...` token, and every read API returns `StoredMcpGrant`, which
+ * has no raw-token field at all. The single write path that still accepts a
+ * plaintext secret is `save(grant: McpGrant)`, kept for internal callers that
+ * assemble an ephemeral grant: it hashes the secret before any SQL runs, so the
+ * database never sees it. Real secrets are issued only by `GrantService`.
  *
  * `scopes_json` and `resource_allowlist_json` stay JSON because the columns are
  * lists of enum-ish strings with no relational use beyond membership, and both
@@ -12,16 +18,18 @@
 
 import type { Database } from 'bun:sqlite';
 
+import { hashMcpToken, isTokenHash, type StoredMcpGrant } from '../../mcp/credentials.ts';
 import type { McpAuditLogEntry, McpGrant } from '../../mcp/types.ts';
-import { filterFlag, toMcpAuditLog, toMcpGrant, type AuditLogRow, type GrantRow } from '../rows.ts';
+import { filterFlag, toMcpAuditLog, toStoredMcpGrant, type AuditLogRow, type GrantRow } from '../rows.ts';
 import { runAtomic } from '../transaction.ts';
+import { assertNonEmptyString } from './validate.ts';
 
-const GRANT_COLUMNS = `grant_id, token, player_id, company_id, match_id, phase_mode,
+const GRANT_COLUMNS = `grant_id, token_hash, player_id, company_id, match_id, phase_mode,
   scopes_json, resource_allowlist_json, max_read_per_minute, max_write_per_minute,
   max_write_per_match, created_at_utc, expires_at_utc, revoked`;
 
 const SELECT_GRANT_SQL = `SELECT ${GRANT_COLUMNS} FROM mcp_grants WHERE grant_id = ?`;
-const SELECT_GRANT_BY_TOKEN_SQL = `SELECT ${GRANT_COLUMNS} FROM mcp_grants WHERE token = ?`;
+const SELECT_GRANT_BY_TOKEN_HASH_SQL = `SELECT ${GRANT_COLUMNS} FROM mcp_grants WHERE token_hash = ?`;
 
 const LIST_GRANTS_SQL = `SELECT ${GRANT_COLUMNS} FROM mcp_grants
 WHERE (? = 1 OR match_id = ?)
@@ -33,7 +41,7 @@ const UPSERT_GRANT_SQL = `
 INSERT INTO mcp_grants (${GRANT_COLUMNS})
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(grant_id) DO UPDATE SET
-  token = excluded.token,
+  token_hash = excluded.token_hash,
   player_id = excluded.player_id,
   company_id = excluded.company_id,
   match_id = excluded.match_id,
@@ -77,17 +85,18 @@ export interface AuditListFilter {
 export class GrantRepository {
   constructor(private readonly database: Database) {}
 
-  load(grantId: string): McpGrant | null {
+  load(grantId: string): StoredMcpGrant | null {
     const row = this.database.query<GrantRow>(SELECT_GRANT_SQL).get(grantId);
-    return row ? toMcpGrant(row) : null;
+    return row ? toStoredMcpGrant(row) : null;
   }
 
-  loadByToken(token: string): McpGrant | null {
-    const row = this.database.query<GrantRow>(SELECT_GRANT_BY_TOKEN_SQL).get(token);
-    return row ? toMcpGrant(row) : null;
+  /** Look up a grant by the SHA-256 digest of a presented token. */
+  loadByTokenHash(tokenHash: string): StoredMcpGrant | null {
+    const row = this.database.query<GrantRow>(SELECT_GRANT_BY_TOKEN_HASH_SQL).get(tokenHash);
+    return row ? toStoredMcpGrant(row) : null;
   }
 
-  list(filter: GrantListFilter = {}): McpGrant[] {
+  list(filter: GrantListFilter = {}): StoredMcpGrant[] {
     const revokedFlag =
       filter.revoked === undefined ? undefined : filter.revoked ? 1 : 0;
     const rows = this.database
@@ -97,17 +106,46 @@ export class GrantRepository {
         ...filterFlag(filter.companyId),
         ...filterFlag(revokedFlag),
       );
-    return rows.map(toMcpGrant);
+    return rows.map(toStoredMcpGrant);
   }
 
-  /** Insert or update the grant (including `revoked`). */
+  /**
+   * Insert or update a grant from an ephemeral record carrying a plaintext
+   * token. The secret is hashed here, before SQL, so it cannot reach a column,
+   * a statement log or a bound parameter. Server code should prefer
+   * `saveStored`, which already holds only the digest.
+   */
   save(grant: McpGrant): void {
+    assertNonEmptyString(grant.token, 'grant.token');
+    this.saveStored({
+      grantId: grant.grantId,
+      tokenHash: hashMcpToken(grant.token),
+      playerId: grant.playerId,
+      companyId: grant.companyId,
+      matchId: grant.matchId,
+      phaseMode: grant.phaseMode,
+      scopes: grant.scopes,
+      resourceAllowlist: grant.resourceAllowlist,
+      quotas: grant.quotas,
+      createdAtUtc: grant.createdAtUtc,
+      expiresAtUtc: grant.expiresAtUtc,
+      revoked: grant.revoked,
+    });
+  }
+
+  /** Insert or update a hash-only grant record (including `revoked`). */
+  saveStored(grant: StoredMcpGrant): void {
+    // Defence in depth: a plaintext secret must never reach the digest column,
+    // even if a caller bypasses `save` and hands over a raw token by mistake.
+    if (!isTokenHash(grant.tokenHash)) {
+      throw new Error('grant.tokenHash must be a sha256 hex digest');
+    }
     runAtomic(this.database, () => {
       this.database
         .query(UPSERT_GRANT_SQL)
         .run(
           grant.grantId,
-          grant.token,
+          grant.tokenHash,
           grant.playerId,
           grant.companyId,
           grant.matchId,

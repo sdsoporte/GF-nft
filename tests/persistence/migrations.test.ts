@@ -191,7 +191,8 @@ test('version 1 covers every table documented by schema.sql', () => {
   withTempDatabase((path) => {
     const database = openDatabase(path);
     try {
-      migrate(database);
+      // Only the documented baseline: later migrations may rename columns.
+      migrate(database, [MIGRATIONS[0]]);
       const tables = new Set(listTables(database));
       for (const table of DOCUMENTED_TABLES) {
         assert.equal(tables.has(table), true, `version 1 is missing documented table ${table}`);

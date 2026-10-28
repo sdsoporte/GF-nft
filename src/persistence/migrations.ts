@@ -24,6 +24,7 @@ import { INITIAL_MIGRATION } from './migrations/001_initial.ts';
 import { RECOVERY_COLUMNS_MIGRATION } from './migrations/002_recovery_columns.ts';
 import { SETTLEMENT_BOOKKEEPING_MIGRATION } from './migrations/003_settlement_bookkeeping.ts';
 import { COMMAND_RESULT_TENANT_MIGRATION } from './migrations/004_command_result_tenant.ts';
+import { MCP_GRANT_TOKEN_HASH_MIGRATION } from './migrations/005_mcp_grant_token_hash.ts';
 
 export interface Migration {
   readonly version: number;
@@ -70,6 +71,7 @@ export const MIGRATIONS: readonly Migration[] = [
   RECOVERY_COLUMNS_MIGRATION,
   SETTLEMENT_BOOKKEEPING_MIGRATION,
   COMMAND_RESULT_TENANT_MIGRATION,
+  MCP_GRANT_TOKEN_HASH_MIGRATION,
 ];
 
 interface AppliedRow {
