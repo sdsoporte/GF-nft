@@ -1,0 +1,33 @@
+# Local development deployment of the authoritative factory backend.
+#
+# With the default GF_SQLITE_PATH the match is persisted to a SQLite file on a
+# named volume: stopping and restarting the container re-adopts the same match
+# (identity, tick, queue, acks and engine state). Without GF_SQLITE_PATH the
+# match would live only in this process's memory. This is a development slice,
+# not a public production service, and one container owns the database file.
+#
+#   export GF_API_TOKEN="$(openssl rand -hex 24)"
+#   docker compose up --build --detach --wait
+#
+# The published port stays on the loopback interface by default.
+services:
+  factory-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gf-factory-backend:dev
+    environment:
+      # Compose refuses to start without a token; 32+ printable characters.
+      GF_API_TOKEN: ${GF_API_TOKEN:?GF_API_TOKEN is required}
+      GF_HOST: 0.0.0.0
+      GF_PORT: "8787"
+      # Persisted match state; migrations run on boot, /data is bun-writable.
+      GF_SQLITE_PATH: ${GF_SQLITE_PATH:-/data/factory.db}
+    ports:
+      - "127.0.0.1:${GF_PUBLISHED_PORT:-8787}:8787"
+    volumes:
+      - factory-data:/data
+    restart: "no"
+
+volumes:
+  factory-data:

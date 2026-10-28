@@ -1,0 +1,28 @@
+# Keep the build context small and free of secrets. The image copies only the
+# backend entrypoint plus src/domain, src/engine and src/persistence, so
+# anything listed here is either unused build context or must never reach an
+# image layer. The in-memory settlement demo stays out (browser-only); its
+# domain interfaces ship because the authentic SQLite provider needs them.
+.git
+.gitignore
+node_modules
+node_modules/
+dist
+coverage
+odd
+docs
+public
+gf
+vite.config.ts
+index.html
+src/App.tsx
+src/main.tsx
+src/mcp
+src/persistence/InMemorySettlementProvider.ts
+.env
+.env.*
+*.log
+**/*.log
+**/*.md
+.atl
+.DS_Store

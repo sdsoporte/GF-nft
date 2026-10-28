@@ -1,0 +1,212 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+
+[node name="FactoryMain" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.06, 0.07, 0.09, 1)
+
+[node name="Root" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 22
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 22
+theme_override_constants/margin_bottom = 18
+
+[node name="Column" type="VBoxContainer" parent="Root"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Root/Column"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "GigaForge Factory (authoritative server)"
+
+[node name="Subtitle" type="Label" parent="Root/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.72, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "The backend owns this factory. This screen reads snapshots and asks for one R1 batch."
+
+[node name="ConnectionBox" type="PanelContainer" parent="Root/Column"]
+layout_mode = 2
+
+[node name="ConnectionRows" type="VBoxContainer" parent="Root/Column/ConnectionBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ConnectionRow" type="HBoxContainer" parent="Root/Column/ConnectionBox/ConnectionRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="UrlLabel" type="Label" parent="Root/Column/ConnectionBox/ConnectionRows/ConnectionRow"]
+layout_mode = 2
+text = "Server URL"
+
+[node name="UrlEdit" type="LineEdit" parent="Root/Column/ConnectionBox/ConnectionRows/ConnectionRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "http://127.0.0.1:8787"
+
+[node name="TokenLabel" type="Label" parent="Root/Column/ConnectionBox/ConnectionRows/ConnectionRow"]
+layout_mode = 2
+text = "Token"
+
+[node name="TokenEdit" type="LineEdit" parent="Root/Column/ConnectionBox/ConnectionRows/ConnectionRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(280, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+secret = true
+placeholder_text = "Bearer token (never stored)"
+
+[node name="ConnectButton" type="Button" parent="Root/Column/ConnectionBox/ConnectionRows/ConnectionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Connect"
+
+[node name="DisconnectButton" type="Button" parent="Root/Column/ConnectionBox/ConnectionRows/ConnectionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "Disconnect"
+
+[node name="StatusLabel" type="Label" parent="Root/Column/ConnectionBox/ConnectionRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Disconnected"
+
+[node name="HelpLabel" type="Label" parent="Root/Column/ConnectionBox/ConnectionRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.68, 0.74, 1)
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 3
+
+[node name="SummaryRow" type="HBoxContainer" parent="Root/Column"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="MatchLabel" type="Label" parent="Root/Column/SummaryRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Match: not connected"
+
+[node name="TickLabel" type="Label" parent="Root/Column/SummaryRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Tick: not connected"
+
+[node name="CreditsLabel" type="Label" parent="Root/Column/SummaryRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Credits: not connected"
+
+[node name="EnergyLabel" type="Label" parent="Root/Column/SummaryRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Energy: not connected"
+
+[node name="Body" type="HBoxContainer" parent="Root/Column"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="InventoryBox" type="VBoxContainer" parent="Root/Column/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InventoryTitle" type="Label" parent="Root/Column/Body/InventoryBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Inventory"
+
+[node name="InventoryList" type="ItemList" parent="Root/Column/Body/InventoryBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 220)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LinesBox" type="VBoxContainer" parent="Root/Column/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LinesTitle" type="Label" parent="Root/Column/Body/LinesBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Production lines"
+
+[node name="LinesList" type="ItemList" parent="Root/Column/Body/LinesBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 160)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StartButton" type="Button" parent="Root/Column/Body/LinesBox"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "Start one R1 batch"
+
+[node name="ActionHint" type="Label" parent="Root/Column/Body/LinesBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.76, 0.72, 0.52, 1)
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 3
+
+[node name="RecipesBox" type="VBoxContainer" parent="Root/Column/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="RecipesTitle" type="Label" parent="Root/Column/Body/RecipesBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Recipes offered by the server"
+
+[node name="RecipesList" type="ItemList" parent="Root/Column/Body/RecipesBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 220)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="CommandLabel" type="Label" parent="Root/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+
+[node name="ErrorLabel" type="Label" parent="Root/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.45, 0.42, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+
+[node name="PollTimer" type="Timer" parent="."]
+unique_name_in_owner = true
+wait_time = 1.0

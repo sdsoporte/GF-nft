@@ -95,6 +95,32 @@ export function createEmptyInventory(): Record<ItemId, { available: number; rese
 }
 
 /**
+ * Durable queue state a restart restores (S3/A3). Written by the persistence
+ * layer, consumed by `CommandQueue.restore` and the recovery tests; the engine
+ * never reads it during a tick.
+ */
+export interface CommandQueueState {
+  /** Pending commands exactly as they were admitted (payload + sequence). */
+  readonly commands: readonly GameCommand[];
+  /** Permanent dedupe keys; they outlive the queue rows they arrived with. */
+  readonly processedIdempotencyKeys: readonly string[];
+  /** Highest sequence number ever handed out, so restarts stay monotonic. */
+  readonly sequenceCounter: number;
+}
+
+/**
+ * Deterministic queue order: first by `scheduledTick`, then by arrival
+ * `sequenceNumber`. Shared by `enqueue` and `restore` so a restored queue is
+ * dequeued in exactly the order a never-restarted queue would be.
+ */
+function compareQueuedCommands(left: GameCommand, right: GameCommand): number {
+  if (left.scheduledTick !== right.scheduledTick) {
+    return left.scheduledTick - right.scheduledTick;
+  }
+  return left.sequenceNumber - right.sequenceNumber;
+}
+
+/**
  * Authoritative Command Queue with tick-based ordering, sequence sorting,
  * and idempotency deduplication.
  */
@@ -115,16 +141,59 @@ export class CommandQueue {
 
     this.queue.push(fullCommand);
     this.processedIdempotencyKeys.add(command.idempotencyKey);
-
-    // Sort queue deterministically: first by scheduledTick, then by arrival sequenceNumber
-    this.queue.sort((a, b) => {
-      if (a.scheduledTick !== b.scheduledTick) {
-        return a.scheduledTick - b.scheduledTick;
-      }
-      return a.sequenceNumber - b.sequenceNumber;
-    });
+    this.queue.sort(compareQueuedCommands);
 
     return true;
+  }
+
+  /**
+   * Restore a persisted queue verbatim (additive API, A3): pending commands,
+   * the permanent idempotency keys and the sequence counter. Called once by
+   * `SimulatorEngine.hydrate` before the clock starts; it replaces the current
+   * queue instead of merging with it, so a second call is a full reset.
+   *
+   * The restored commands keep their original `sequenceNumber`, which is what
+   * makes the post-restart execution order identical, and the restored keys are
+   * what keeps S8's engine-side dedupe working after a restart (A6).
+   */
+  public restore(state: CommandQueueState): void {
+    assertSafeInteger(state.sequenceCounter, 'commandQueue.sequenceCounter');
+    if (state.sequenceCounter < 0) {
+      throw new Error(`[GigaForge] sequenceCounter cannot be negative: ${state.sequenceCounter}`);
+    }
+
+    const restored: GameCommand[] = [];
+    for (const command of state.commands) {
+      assertSafeInteger(command.sequenceNumber, 'command.sequenceNumber');
+      assertSafeInteger(command.scheduledTick, 'command.scheduledTick');
+      if (command.sequenceNumber <= 0 || command.sequenceNumber > state.sequenceCounter) {
+        throw new Error(
+          `[GigaForge] Command "${command.commandId}" has sequence ${command.sequenceNumber} ` +
+            `outside the restored counter ${state.sequenceCounter}`,
+        );
+      }
+      restored.push({ ...command });
+    }
+    restored.sort(compareQueuedCommands);
+
+    this.queue = restored;
+    this.processedIdempotencyKeys = new Set(state.processedIdempotencyKeys);
+    this.sequenceCounter = state.sequenceCounter;
+  }
+
+  /** Pending commands in dequeue order; read surface for restore/recovery. */
+  public listPending(): GameCommand[] {
+    return this.queue.map((command) => ({ ...command }));
+  }
+
+  /** Permanent dedupe keys, sorted; read surface for restore/recovery. */
+  public listProcessedIdempotencyKeys(): string[] {
+    return Array.from(this.processedIdempotencyKeys).sort();
+  }
+
+  /** Highest sequence number handed out so far (monotonic). */
+  public getSequenceCounter(): number {
+    return this.sequenceCounter;
   }
 
   public dequeueForTick(currentTick: number): GameCommand[] {
@@ -147,8 +216,157 @@ export class CommandQueue {
     return this.processedIdempotencyKeys.has(key);
   }
 
+  /** Number of permanent dedupe keys retained (read surface for tests). */
+  public getProcessedIdempotencyKeyCount(): number {
+    return this.processedIdempotencyKeys.size;
+  }
+
   public getPendingCount(): number {
     return this.queue.length;
+  }
+}
+
+/**
+ * Required Megamachine parts for the global project (GAME_DESIGN_MVP.md).
+ * Kept as one constant because both `initializeStandardMatch` and the restore
+ * path have to agree on it.
+ */
+export const GLOBAL_PROJECT_REQUIRED_PARTS = 12;
+
+/** A pristine global project: nothing delivered, nothing completed. */
+export function createInitialGlobalProject(
+  requiredMegamachineParts: number = GLOBAL_PROJECT_REQUIRED_PARTS,
+): GlobalProjectState {
+  return {
+    requiredMegamachineParts,
+    deliveredMegamachineParts: 0,
+    completedAtTick: null,
+    isVictorious: false,
+  };
+}
+
+/**
+ * Rebuild the global project from persisted company rows (additive restore
+ * helper, A3).
+ *
+ * Invariant on the engine: `globalProject.deliveredMegamachineParts` moves only
+ * inside `DELIVER_MEGAMACHINE_PART`, which in the same branch increments the
+ * delivering company's `contributedMegamachinePartsR8`; nothing else touches
+ * either value. The delivered total is therefore exactly the sum of the company
+ * contributions, and `isVictorious` is `delivered >= required` in both places
+ * that set it.
+ *
+ * What cannot be derived: the tick the project was completed at. No persisted
+ * row records it (and this backend has no command path that delivers
+ * Megamachine parts, so a server match never reaches victory). Guessing would
+ * silently corrupt state, so it stays `null`; a caller restoring a victorious
+ * state must pass the real `globalProject` to `hydrate` instead.
+ */
+export function deriveGlobalProjectState(
+  companies: readonly CompanyState[],
+): GlobalProjectState {
+  let delivered = 0;
+  for (const company of companies) {
+    assertSafeInteger(company.contributedMegamachinePartsR8, 'contributedMegamachinePartsR8');
+    delivered += company.contributedMegamachinePartsR8;
+  }
+  return {
+    requiredMegamachineParts: GLOBAL_PROJECT_REQUIRED_PARTS,
+    deliveredMegamachineParts: delivered,
+    completedAtTick: null,
+    isVictorious: delivered >= GLOBAL_PROJECT_REQUIRED_PARTS,
+  };
+}
+
+/**
+ * Everything a restart has to hand back to a fresh engine, in the order it is
+ * applied (A3). Every field is optional and only the fields present are
+ * restored, which is what lets a caller rebuild a tick-0 command queue without
+ * re-sending the standard company layout.
+ *
+ * `companies` / `contracts` / `commandResults` are cloned, so the caller keeps
+ * ownership of the rows it passes in.
+ */
+export interface EngineHydration {
+  /** Monotonic tick floor (`matches.current_tick`). */
+  readonly currentTick?: number;
+  readonly companies?: readonly CompanyState[];
+  readonly contracts?: readonly SupplyContract[];
+  /** Explicit global project; derived from `companies` when omitted. */
+  readonly globalProject?: GlobalProjectState;
+  /** Contract id counter; defaults to the restored contract count. */
+  readonly contractCounter?: number;
+  readonly queue?: CommandQueueState;
+  readonly commandResults?: readonly CommandExecutionResult[];
+}
+
+/**
+ * Structural checks for a company handed to `hydrate`. The repository read path
+ * already returns the right shape; this catches a caller that assembles the
+ * snapshot itself before the engine starts computing on invalid numbers.
+ */
+function validateCompanyForHydration(company: CompanyState): void {
+  if (company.companyId.length === 0) {
+    throw new Error('[GigaForge] hydrate received a company with an empty id');
+  }
+  assertSafeInteger(company.credits, `${company.companyId}.credits`);
+  assertSafeInteger(company.energy, `${company.companyId}.energy`);
+  assertSafeInteger(company.maxEnergyStorage, `${company.companyId}.maxEnergyStorage`);
+  assertSafeInteger(company.energyGenerationPerTick, `${company.companyId}.energyGenerationPerTick`);
+  assertSafeInteger(company.installedTurbinesR7, `${company.companyId}.installedTurbinesR7`);
+  assertSafeInteger(
+    company.contributedMegamachinePartsR8,
+    `${company.companyId}.contributedMegamachinePartsR8`,
+  );
+  assertSafeInteger(company.reputation, `${company.companyId}.reputation`);
+  assertSafeInteger(company.maintenancePaidTicks, `${company.companyId}.maintenancePaidTicks`);
+
+  for (const line of company.lines) {
+    if (line.companyId !== company.companyId) {
+      throw new Error(
+        `[GigaForge] Production line "${line.lineId}" belongs to "${line.companyId}", ` +
+          `not "${company.companyId}"`,
+      );
+    }
+    assertSafeInteger(line.totalBatchesProduced, `${line.lineId}.totalBatchesProduced`);
+    assertSafeInteger(line.lastActionTick, `${line.lineId}.lastActionTick`);
+    const batch = line.activeBatch;
+    if (batch === null) continue;
+    assertSafeInteger(batch.targetBatches, `${line.lineId}.activeBatch.targetBatches`);
+    assertSafeInteger(batch.completedBatches, `${line.lineId}.activeBatch.completedBatches`);
+    assertSafeInteger(batch.progressTicks, `${line.lineId}.activeBatch.progressTicks`);
+    assertSafeInteger(batch.totalDurationTicks, `${line.lineId}.activeBatch.totalDurationTicks`);
+    assertSafeInteger(batch.energyPerTick, `${line.lineId}.activeBatch.energyPerTick`);
+    assertSafeInteger(batch.energyRemainder, `${line.lineId}.activeBatch.energyRemainder`);
+  }
+}
+
+/**
+ * Execution history has to be tick-ordered and never ahead of the tick it is
+ * restored with: a history row for a future tick means the snapshot and the
+ * counters came from two different moments, which is the failure mode risk item
+ * 1 forbids releasing silently.
+ */
+function validateExecutionHistory(
+  results: readonly CommandExecutionResult[],
+  currentTick: number,
+): void {
+  let previousTick = -1;
+  for (const result of results) {
+    assertSafeInteger(result.executedAtTick, 'commandResult.executedAtTick');
+    if (result.executedAtTick < previousTick) {
+      throw new Error(
+        `[GigaForge] Execution history is not ordered by tick: ` +
+          `${result.executedAtTick} after ${previousTick}`,
+      );
+    }
+    if (result.executedAtTick > currentTick) {
+      throw new Error(
+        `[GigaForge] Execution result "${result.commandId}" ran at tick ` +
+          `${result.executedAtTick}, ahead of the restored tick ${currentTick}`,
+      );
+    }
+    previousTick = result.executedAtTick;
   }
 }
 
@@ -169,12 +387,7 @@ export class SimulatorEngine {
 
   private companies: Map<string, CompanyState> = new Map();
   private contracts: Map<string, SupplyContract> = new Map();
-  private globalProject: GlobalProjectState = {
-    requiredMegamachineParts: 12,
-    deliveredMegamachineParts: 0,
-    completedAtTick: null,
-    isVictorious: false,
-  };
+  private globalProject: GlobalProjectState = createInitialGlobalProject();
 
   private contractCounter = 0;
 
@@ -195,12 +408,7 @@ export class SimulatorEngine {
     this.currentTick = 0;
     this.companies.clear();
     this.contracts.clear();
-    this.globalProject = {
-      requiredMegamachineParts: 12,
-      deliveredMegamachineParts: 0,
-      completedAtTick: null,
-      isVictorious: false,
-    };
+    this.globalProject = createInitialGlobalProject();
 
     const companyConfigs = customCompanies ?? [
       {
@@ -291,6 +499,106 @@ export class SimulatorEngine {
 
   public getCurrentTick(): number {
     return this.currentTick;
+  }
+
+  /**
+   * Current PRNG state. Tick logic never advances the PRNG (all randomness in a
+   * match comes from the seed handed to the constructor), which is why
+   * `hydrate` does not need to restore it: a match rebuilt with the persisted
+   * seed has the same state. The recovery oracle compares it so a future tick
+   * rule that starts consuming the PRNG cannot silently break exact recovery.
+   */
+  public getPrngState(): number {
+    return this.rng.getSeed();
+  }
+
+  /**
+   * Restore a persisted engine state (additive API, A3). Called ONCE at boot by
+   * the match layer, before the clock starts; never during a tick.
+   *
+   * Semantics:
+   * - only the fields present are restored, in this fixed order: companies →
+   *   contracts → global project → contract counter → tick → command queue →
+   *   execution history. Restoring the queue and the history after the tick
+   *   means both are ordered against the settled tick, so the next `processTick`
+   *   dequeues exactly what the interrupted engine would have dequeued;
+   * - the restored queue and history REPLACE the current ones (a second call is
+   *   a full reset, not a merge), so a caller cannot accumulate duplicates;
+   * - tick, sequence counter and contract counter are monotonic floors supplied
+   *   by the persistence layer (`matches.current_tick` / `sequence_counter`);
+   * - no tick, production, energy, maintenance or contract rule is executed here,
+   *   and `commandResults` is not folded: the caller re-folds from its own
+   *   cursor (see `FactoryMatch`), which is what keeps S8's dedupe stable.
+   *
+   * Validation is deliberately loud: an inconsistent snapshot (duplicate ids,
+   * a line that belongs to another company, history newer than the tick) throws
+   * instead of producing a silently different match.
+   */
+  public hydrate(input: EngineHydration): void {
+    if (input.companies !== undefined) {
+      const restoredCompanies = new Map<string, CompanyState>();
+      for (const company of input.companies) {
+        if (restoredCompanies.has(company.companyId)) {
+          throw new Error(`[GigaForge] hydrate received company "${company.companyId}" twice`);
+        }
+        validateCompanyForHydration(company);
+        restoredCompanies.set(company.companyId, structuredClone(company));
+      }
+      if (restoredCompanies.size === 0) {
+        throw new Error('[GigaForge] hydrate needs at least one company to rebuild a match');
+      }
+      this.companies = restoredCompanies;
+    }
+
+    if (input.contracts !== undefined) {
+      const restoredContracts = new Map<string, SupplyContract>();
+      for (const contract of input.contracts) {
+        if (restoredContracts.has(contract.contractId)) {
+          throw new Error(`[GigaForge] hydrate received contract "${contract.contractId}" twice`);
+        }
+        restoredContracts.set(contract.contractId, structuredClone(contract));
+      }
+      this.contracts = restoredContracts;
+    }
+
+    if (input.globalProject !== undefined) {
+      this.globalProject = { ...input.globalProject };
+    } else if (input.companies !== undefined) {
+      // Company rows are the only persisted trace of the global project.
+      this.globalProject = deriveGlobalProjectState(Array.from(this.companies.values()));
+    }
+
+    if (input.contractCounter !== undefined) {
+      assertSafeInteger(input.contractCounter, 'contractCounter');
+      if (input.contractCounter < 0) {
+        throw new Error(`[GigaForge] contractCounter cannot be negative: ${input.contractCounter}`);
+      }
+      this.contractCounter = input.contractCounter;
+    } else if (input.contracts !== undefined) {
+      // Every CREATE_SUPPLY_OFFER inserts exactly one contract and contracts are
+      // never deleted, so the row count is the counter.
+      this.contractCounter = this.contracts.size;
+    }
+
+    if (input.currentTick !== undefined) {
+      assertSafeInteger(input.currentTick, 'currentTick');
+      if (input.currentTick < 0) {
+        throw new Error(`[GigaForge] currentTick cannot be negative: ${input.currentTick}`);
+      }
+      this.currentTick = input.currentTick;
+    }
+
+    if (input.queue !== undefined) {
+      this.commandQueue.restore(input.queue);
+    }
+
+    if (input.commandResults !== undefined) {
+      validateExecutionHistory(input.commandResults, this.currentTick);
+      this.commandResults.length = 0;
+      for (const result of input.commandResults) {
+        this.commandResults.push({ ...result });
+      }
+    }
   }
 
   public getCompany(companyId: string): CompanyState | undefined {
@@ -456,7 +764,13 @@ export class SimulatorEngine {
         batch.progressTicks = 0;
         line.status = 'RUNNING';
       } else {
-        // Paused due to material shortage
+        // Material shortage: the next batch never started because its inputs
+        // could not be deducted, so no active batch may remain. Retaining the
+        // completed batch here let RESUME_PRODUCTION_LINE replay completion
+        // and credit output for free (issue #1). The line waits in PAUSED
+        // with no active batch; the operator restarts it with
+        // SET_PRODUCTION_TARGET, which deducts inputs before creating a batch.
+        line.activeBatch = null;
         line.status = 'PAUSED';
       }
     } else {
