@@ -62,7 +62,7 @@ const EXPECTED_KIND: Readonly<Record<number, CoverageKind>> = {
   4: 'pending',
   5: 'pending',
   6: 'green',
-  7: 'pending',
+  7: 'green',
 };
 
 const P0_ISSUES = [1, 2, 3, 4, 5, 6, 7] as const;
@@ -202,10 +202,31 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #7
   {
     issue: 7,
-    file: 'backend/tests/mcp/isolation.test.ts',
-    titleFragment: 're-registering a grant invalidates its previous token',
-    kind: 'pending',
-    note: 'issue #7 open: fixed-token issuance, registerGrant keeps the stale token mapping alive',
+    file: 'backend/tests/mcp-runtime.test.ts',
+    titleFragment: 'fixture/demo credentials never access a real server match',
+    kind: 'green',
+    note: 'real server rejects raw registration and historical demo credentials; no legacy fixture claim',
+  },
+  {
+    issue: 7,
+    file: 'backend/tests/owner-grants-http.test.ts',
+    titleFragment: 'every grant administration operation requires an active owner session, not the root token',
+    kind: 'green',
+    note: 'server grant administration is owner-session-only',
+  },
+  {
+    issue: 7,
+    file: 'backend/tests/owner-grants-http.test.ts',
+    titleFragment: 'grant secrets are delivered once and list/get contain server-selected identity without secrets or hashes',
+    kind: 'green',
+    note: 'one-time secret delivery and safe metadata are asserted through HTTP',
+  },
+  {
+    issue: 7,
+    file: 'tests/integration/repository-boundaries.test.ts',
+    titleFragment: 'no frontend, Tailwind, GenAI or Express package stays in the active graph',
+    kind: 'green',
+    note: 'retired web demo is outside the active graph; real server coverage replaces obsolete browser assumptions',
   },
 ];
 

@@ -18,8 +18,8 @@ Issue #7 requirements, quoted verbatim:
 - **S9** — "El backend genera tokens opacos criptográficamente aleatorios, guarda solo hash del secreto y los muestra una única vez."
 - **S10** — "Crear/consultar/revocar grants solo mediante sesión autenticada del propietario."
 - **S11** — "Aplicar TTL, scopes, empresa/partida y allowlist desde almacenamiento servidor."
-- **S12** — "No incluir tokens reales, claves ni credenciales reutilizables en el bundle React."
-- **S13** — "Proveer credenciales mock únicamente dentro de un modo de pruebas aislado."
+- **S12** — "No incluir tokens reales, claves ni credenciales reutilizables en el bundle React." Accepted superseding delivery (L14): no active React bundle; historical sources are excluded from dependency/typecheck/test/build/container scope.
+- **S13** — "Proveer credenciales mock únicamente dentro de un modo de pruebas aislado." Accepted superseding delivery (L14): the old web app is source-only archive, not a running mock mode; fixture credentials cannot access real server matches.
 - **S14** — "Ningún grant sensible se expone al navegador salvo durante su entrega explícita al titular."
 - **S15** — "Grantes expirados o revocados rechazan todas las operaciones."
 - **S16** — "Tests cubren filtración, revocación, expiración y autorización de propiedad."
@@ -68,3 +68,5 @@ Human choices (verbatim):
 - **L13 — Durable pause checkpoint**: T4 source committed as `80c7e98a6e7f8d2b72cb8c4873dee8259b92fa42`, base `3bf3fa76b9e84c40ce2e9bfd20a4db368b1d38aa`,20 paths/891 authored lines, Conventional Commit. Post-commit direct ASSESS item2 returned high/unassessable/package-local-binary-missing with independentVerifier=true; no review started/approved/acknowledged. Initial codemode invocation was rejected by the host before native execution (review tools require direct calls), then the read-only direct call was used. T5 remains blocked solely on the user's resume; T6 pending behind T5. All background jobs are exited; owned Docker test container no longer running. Final metadata commit is local-only.
 
 - **L14 — User scope change (verbatim)**: "ok genera un backup del estado actual y luego procede con esa estructura. documenta el cambio." Accepted structure archives the obsolete demo under `docs/archive/web-demo/`, no active site. Original browser T5 is dropped (not done); S12/S13 are now evidenced by exclusion from all active builds/install/test/typecheck/container scope and rejection of historical demo credentials by the actual server. S14/S17 backend administration behavior stays unchanged; final independent T6 must read this complete document plus `odd/tasks/product-layout.md`. No #7 completion or remote issue closure is claimed at this transition.
+
+- **L15 — Layout/coverage reconciliation**: R3 `d56c72a`, R4 `7e797e9`; all runtime core37 files unchanged and server modules import-only. Current #7 matrix now pins existing passing real-server, owner HTTP and archive/dependency-boundary assertions. The old isolated legacy re-registration test remains skipped and is explicitly NOT claimed fixed; no runtime mutation was made to satisfy that obsolete browser assumption. Remote issue #7 remains unclosed. S12/S13 keep original quotes plus accepted source-only archive interpretation; full independent T6 remains next.
