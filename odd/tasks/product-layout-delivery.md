@@ -39,7 +39,7 @@ Tracker `chore/mcp-security` targets main and carries final closing references. 
 - **D2** [S1-S3] — **done** — Record delivery, materialize approved labels/issue and branches. Route: parent bounded remote actions, exact pre/post readback. Commit: `e375119b11e0ff50d5f525cceaf33cfa9907b0cb`. Risk: item5 (remote delivery metadata).
 - **D3** [S1-S3] — **done** — Push intended refs, publish draft tracker and9 linked child PRs with exact one type and dependency diagrams. Route: parent. Evidence: draft tracker#23 and children#24–#32, exact source heads/labels read back in published-chain.json. Risk: item5.
 - **D4** [S1] — **done** — Observe exact-head required CI; merge9→1 then ready/merge tracker without bypass. Route: bounded background GitHub watcher, no source writer. Evidence: PR23 merged `878603a051b1e146c19f0ef3d968af63c2a28057`; exact trackerCI40776270181 and mainCI40777065751 PASS, nine child CI records in L9. Risk: item5.
-- **D5** [S1-S3] — **done** — Verify main tree/postmerge CI, mark evidenced issue criteria/closures, sync local main and document final remote results. Route: parent. Evidence: pending. Risk: item5.
+- **D5** [S1-S3] — **done** — Verify main tree/postmerge CI, mark evidenced issue criteria/closures, sync local main and document final remote results. Route: parent. Evidence: issues#2/#7/#22 completed with verified criteria; PR33 persisted records on main `9752cc00d71cc275b97ff8e53b73f2c0ab0a41a8`, postmergeCI40777715151 PASS, localmain FF/clean and runtime-f24 equivalence confirmed. Risk: item5.
 
 ## Log
 
