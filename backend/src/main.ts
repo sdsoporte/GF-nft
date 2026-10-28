@@ -6,18 +6,24 @@
  * token is passed to the server only and is never printed.
  */
 
+import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 
 import {
   HOST_ENV_VAR,
   MIN_TOKEN_LENGTH,
   PORT_ENV_VAR,
+  SQLITE_PATH_ENV_VAR,
   TOKEN_ENV_VAR,
   readFactoryConfig,
 } from './config.ts';
 import type { FactoryConfig } from './config.ts';
 import { createFactoryServer } from './http.ts';
 import type { FactoryServerAddress } from './http.ts';
+import { closeDatabase, openDatabase } from '../../src/persistence/database.ts';
+import { createMatchStore, type MatchStore } from '../../src/persistence/matchStore.ts';
+import { migrate } from '../../src/persistence/migrations.ts';
 
 export const USAGE = `GF authoritative factory backend - development slice
 
@@ -32,6 +38,11 @@ Environment:
   ${HOST_ENV_VAR}       Bind address. Default 127.0.0.1; use 0.0.0.0 inside a
                 container so the published port can reach it.
   ${PORT_ENV_VAR}       TCP listen port. Default 8787.
+  ${SQLITE_PATH_ENV_VAR}  Optional SQLite file that stores the match identity, the
+                command queue, idempotency keys, acknowledgements and command
+                results. Its parent directory is created on boot and the schema
+                is migrated before the server listens. Unset keeps the match
+                in memory only.
 
 Endpoints (all /v1/ routes require "Authorization: Bearer <${TOKEN_ENV_VAR}>"):
   GET  /health              Liveness and protocol version; no credentials.
@@ -39,15 +50,42 @@ Endpoints (all /v1/ routes require "Authorization: Bearer <${TOKEN_ENV_VAR}>"):
   POST /v1/production       Queue one R1 batch on an owned production line.
   GET  /v1/commands/<id>    Command status: queued, executed or rejected.
 
-The server owns the clock and advances one tick per second. Restarting the
-process creates a new in-memory match; nothing is persisted. Docker usage and
-the pricing of this development slice are documented in backend/README.md.
+The server owns the clock and advances one tick per second. With
+${SQLITE_PATH_ENV_VAR} set, acknowledged requests and command results survive a
+restart with identical results; without it, a restart creates a new in-memory
+match. Docker usage and the pricing of this development slice are documented in
+backend/README.md.
 `;
 
 export interface StartedServer {
   readonly address: FactoryServerAddress;
   readonly matchId: string;
   close(): Promise<void>;
+}
+
+/** Booted persistence: the store the server injects plus its close hook. */
+export interface MatchPersistence {
+  readonly store: MatchStore;
+  close(): void;
+}
+
+/**
+ * Boot one persistent match store (S3/S6): create the parent directory of the
+ * configured file, open the database, apply the versioned migrations, and hand
+ * back the store the server injects into `FactoryMatch`. Every failure throws,
+ * so a bad path stops startup instead of silently disabling persistence.
+ */
+export function openMatchPersistence(sqlitePath: string): MatchPersistence {
+  const resolved = resolve(sqlitePath);
+  mkdirSync(dirname(resolved), { recursive: true });
+  const database = openDatabase(resolved);
+  try {
+    migrate(database);
+  } catch (error) {
+    closeDatabase(database);
+    throw error;
+  }
+  return { store: createMatchStore(database), close: () => closeDatabase(database) };
 }
 
 export type ServerStarter = (config: FactoryConfig) => Promise<StartedServer>;
@@ -69,16 +107,24 @@ function formatHost(host: string): string {
 }
 
 async function startRealServer(config: FactoryConfig): Promise<StartedServer> {
+  const persistence =
+    config.sqlitePath === undefined ? null : openMatchPersistence(config.sqlitePath);
   const handle = createFactoryServer({
     token: config.token,
     host: config.host,
     port: config.port,
+    ...(persistence === null ? {} : { store: persistence.store }),
   });
   const address = await handle.listen({ host: config.host, port: config.port });
   return {
     address,
     matchId: handle.match.matchId,
-    close: () => handle.close(),
+    close: async () => {
+      await handle.close();
+      // The database outlives the HTTP server, so closing it is the last step
+      // of a clean shutdown; a process kill simply leaves the committed rows.
+      persistence?.close();
+    },
   };
 }
 

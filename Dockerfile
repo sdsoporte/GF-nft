@@ -12,6 +12,13 @@ COPY package.json ./
 COPY backend ./backend
 COPY src/domain ./src/domain
 COPY src/engine ./src/engine
+# Persistence layer: the boot path imports it unconditionally (openMatchPersistence),
+# and migrations 1-3 ship with it. Old volumes upgrade in place via the runner.
+COPY src/persistence ./src/persistence
+
+# Writable path for optional SQLite persistence (GF_SQLITE_PATH); compose mounts
+# its named volume here. Without GF_SQLITE_PATH the match stays in memory.
+RUN mkdir -p /data && chown bun /data
 
 # Inside the container the service must listen on all interfaces so the
 # published port can reach it. Compose keeps the published port on loopback.
