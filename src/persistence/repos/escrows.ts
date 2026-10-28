@@ -43,6 +43,29 @@ ON CONFLICT(escrow_id) DO UPDATE SET
 const SET_STATE_SQL = `
 UPDATE trade_escrows SET settlement_state = ?, settled_at_tick = ? WHERE escrow_id = ?`;
 
+/** Column order for both the upsert and the plain insert. */
+function escrowParams(escrow: TradeEscrowRecord): unknown[] {
+  return [
+    escrow.escrowId,
+    escrow.lotId,
+    escrow.sellerCompanyId,
+    escrow.buyerCompanyId,
+    escrow.agreedPriceAmount,
+    escrow.currencyType,
+    escrow.sellerCollateralAmount,
+    escrow.deadlineTick,
+    escrow.settlementState,
+    escrow.externalTxHash ?? null,
+    escrow.settledAtTick ?? null,
+  ];
+}
+
+/**
+ * Plain insert: creating an escrow must fail on a duplicate id instead of
+ * overwriting an escrow that may already hold funds (S4).
+ */
+const INSERT_SQL = `INSERT INTO trade_escrows (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
 export interface EscrowListFilter {
   readonly settlementState?: EscrowSettlementState;
   readonly lotId?: string;
@@ -70,21 +93,15 @@ export class EscrowRepository {
 
   save(escrow: TradeEscrowRecord): TradeEscrowRecord {
     runAtomic(this.database, () => {
-      this.database
-        .query(UPSERT_SQL)
-        .run(
-          escrow.escrowId,
-          escrow.lotId,
-          escrow.sellerCompanyId,
-          escrow.buyerCompanyId,
-          escrow.agreedPriceAmount,
-          escrow.currencyType,
-          escrow.sellerCollateralAmount,
-          escrow.deadlineTick,
-          escrow.settlementState,
-          escrow.externalTxHash ?? null,
-          escrow.settledAtTick ?? null,
-        );
+      this.database.query(UPSERT_SQL).run(...escrowParams(escrow));
+    });
+    return escrow;
+  }
+
+  /** Insert a new escrow; a duplicate `escrow_id` is a schema rejection. */
+  create(escrow: TradeEscrowRecord): TradeEscrowRecord {
+    runAtomic(this.database, () => {
+      this.database.query(INSERT_SQL).run(...escrowParams(escrow));
     });
     return escrow;
   }

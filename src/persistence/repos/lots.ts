@@ -43,10 +43,33 @@ ON CONFLICT(lot_id) DO UPDATE SET
 
 const SET_STATUS_SQL = 'UPDATE commodity_lots SET status = ?, settled_at_tick = ? WHERE lot_id = ?';
 
+/**
+ * Plain insert: a lot id is never reused. `save` is an upsert because it carries
+ * state changes, but *creating* a lot must fail on a duplicate instead of
+ * silently clobbering another lot's row (S4: uniqueness is a database rule).
+ */
+const INSERT_SQL = `INSERT INTO commodity_lots (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
 export interface LotListFilter {
   readonly status?: LotStatus;
   readonly holderCompanyId?: string;
   readonly originCompanyId?: string;
+}
+
+/** Column order for both the upsert and the plain insert. */
+function lotParams(lot: CommodityLot): unknown[] {
+  return [
+    lot.lotId,
+    lot.originCompanyId,
+    lot.currentHolderCompanyId,
+    lot.itemId,
+    lot.quantity,
+    lot.reservationId,
+    lot.status,
+    lot.stateHash,
+    lot.createdAtTick,
+    lot.settledAtTick ?? null,
+  ];
 }
 
 export class LotRepository {
@@ -70,20 +93,18 @@ export class LotRepository {
 
   save(lot: CommodityLot): CommodityLot {
     runAtomic(this.database, () => {
-      this.database
-        .query(UPSERT_SQL)
-        .run(
-          lot.lotId,
-          lot.originCompanyId,
-          lot.currentHolderCompanyId,
-          lot.itemId,
-          lot.quantity,
-          lot.reservationId,
-          lot.status,
-          lot.stateHash,
-          lot.createdAtTick,
-          lot.settledAtTick ?? null,
-        );
+      this.database.query(UPSERT_SQL).run(...lotParams(lot));
+    });
+    return lot;
+  }
+
+  /**
+   * Insert a new lot; a duplicate `lot_id` (or a `reservation_id` already used by
+   * another lot) is rejected by the schema instead of overwriting a row.
+   */
+  create(lot: CommodityLot): CommodityLot {
+    runAtomic(this.database, () => {
+      this.database.query(INSERT_SQL).run(...lotParams(lot));
     });
     return lot;
   }

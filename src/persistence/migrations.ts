@@ -22,6 +22,7 @@ import type { Database } from 'bun:sqlite';
 import { withTransaction } from './database.ts';
 import { INITIAL_MIGRATION } from './migrations/001_initial.ts';
 import { RECOVERY_COLUMNS_MIGRATION } from './migrations/002_recovery_columns.ts';
+import { SETTLEMENT_BOOKKEEPING_MIGRATION } from './migrations/003_settlement_bookkeeping.ts';
 
 export interface Migration {
   readonly version: number;
@@ -66,6 +67,7 @@ const SELECT_APPLIED_SQL =
 export const MIGRATIONS: readonly Migration[] = [
   INITIAL_MIGRATION,
   RECOVERY_COLUMNS_MIGRATION,
+  SETTLEMENT_BOOKKEEPING_MIGRATION,
 ];
 
 interface AppliedRow {

@@ -27,6 +27,7 @@ import { LotRepository } from './lots.ts';
 import { MatchMetadataRepository } from './matches.ts';
 import { ProductionLineRepository } from './lines.ts';
 import { ReservationRepository } from './reservations.ts';
+import { SettlementCounterRepository } from './settlementCounters.ts';
 import type { CompanyRecord, CompanyStateWrite } from './types.ts';
 
 export * from './types.ts';
@@ -45,6 +46,11 @@ export { LotRepository, type LotListFilter } from './lots.ts';
 export { MatchMetadataRepository } from './matches.ts';
 export { ProductionLineRepository } from './lines.ts';
 export { ReservationRepository, type ReservationListFilter } from './reservations.ts';
+export {
+  SETTLEMENT_SEQUENCES,
+  SettlementCounterRepository,
+  type SettlementSequence,
+} from './settlementCounters.ts';
 
 export class Repositories {
   readonly database: Database;
@@ -55,6 +61,8 @@ export class Repositories {
   readonly lots: LotRepository;
   readonly escrows: EscrowRepository;
   readonly reservations: ReservationRepository;
+  /** Durable id sequences and per-account anti-replay nonces (T5a). */
+  readonly settlementCounters: SettlementCounterRepository;
   readonly grants: GrantRepository;
   /** Per-match metadata plus the queue/idempotency/ack/history rows (T3). */
   readonly matches: MatchMetadataRepository;
@@ -71,6 +79,7 @@ export class Repositories {
     this.lots = new LotRepository(database);
     this.escrows = new EscrowRepository(database);
     this.reservations = new ReservationRepository(database);
+    this.settlementCounters = new SettlementCounterRepository(database);
     this.grants = new GrantRepository(database);
     this.matches = new MatchMetadataRepository(database);
     this.queue = new CommandQueueRepository(database);

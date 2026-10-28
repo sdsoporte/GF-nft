@@ -36,11 +36,16 @@ test('migration 2 applies after version 1 on a fresh database', () => {
   withDatabase((database) => {
     const run = migrate(database);
 
-    assert.deepEqual(run.appliedVersions, [1, 2]);
-    assert.equal(run.currentVersion, 2);
+    // Derived from the registry (T5a): migration 3 and any later version must not
+    // force an edit here, only the properties of migration 2 are under test.
+    assert.deepEqual(
+      run.appliedVersions,
+      MIGRATIONS.map((migration) => migration.version),
+    );
+    assert.equal(run.currentVersion, MIGRATIONS.at(-1)!.version);
     assert.deepEqual(
       getAppliedMigrations(database).map((migration) => migration.name),
-      ['initial', 'recovery_columns'],
+      MIGRATIONS.map((migration) => migration.name),
     );
 
     assert.equal(listColumns(database, 'matches').includes('tick_interval_ms'), true);
@@ -76,8 +81,14 @@ test('migration 2 upgrades a version-1 database and backfills the new defaults',
 
     const upgrade = migrate(database);
 
-    assert.deepEqual(upgrade.appliedVersions, [2]);
-    assert.equal(getCurrentVersion(database), 2);
+    // A version-1 database upgrades through every pending migration, so the
+    // applied set is the registry minus version 1; migration 2's backfills are
+    // asserted below on the rows this test wrote.
+    assert.deepEqual(
+      upgrade.appliedVersions,
+      MIGRATIONS.slice(1).map((migration) => migration.version),
+    );
+    assert.equal(getCurrentVersion(database), MIGRATIONS.at(-1)!.version);
 
     const company = database
       .query<{ credits: number; maintenance_paid_ticks: number }>(
@@ -103,30 +114,35 @@ test('migration 2 is a no-op on an already upgraded database', () => {
     const rerun = migrate(database);
 
     assert.deepEqual(rerun.appliedVersions, []);
-    assert.equal(rerun.currentVersion, 2);
-    assert.equal(getAppliedMigrations(database).length, 2);
+    assert.equal(rerun.currentVersion, MIGRATIONS.at(-1)!.version);
+    assert.equal(getAppliedMigrations(database).length, MIGRATIONS.length);
   });
 });
 
 test('migration 2 keeps version 1 intact and is the only schema delta', () => {
   withDatabase((database) => {
+    const listTables = (): string[] =>
+      database
+        .query<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .all()
+        .map((row) => row.name);
+
     migrate(database, [MIGRATIONS[0]]);
-    const tablesBefore = database
-      .query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-      )
-      .all()
-      .map((row) => row.name);
+    const tablesBefore = listTables();
 
+    // Migration 2 only: it must not add tables of its own.
+    migrate(database, MIGRATIONS.slice(0, 2));
+    assert.deepEqual(listTables(), tablesBefore);
+
+    // Migration 3 is a later, separate delta. Its exact additions are pinned
+    // here rather than derived (the registry carries SQL text, not table names),
+    // so an accidental table in any migration is still caught.
     migrate(database);
-
-    const tablesAfter = database
-      .query<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-      )
-      .all()
-      .map((row) => row.name);
-
-    assert.deepEqual(tablesAfter, tablesBefore);
+    assert.deepEqual(
+      listTables(),
+      [...tablesBefore, 'account_nonces', 'settlement_counters'].sort(),
+    );
   });
 });
