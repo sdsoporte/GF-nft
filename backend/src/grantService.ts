@@ -25,7 +25,7 @@
  *   a subset of those lines, so a grant can only narrow its reach.
  */
 
-import type { GrantRepository } from '../../src/persistence/repos/grants.ts';
+import type { GrantRepository } from './persistence/repos/grants.ts';
 import {
   generateGrantId,
   generateMcpToken,
@@ -36,9 +36,9 @@ import {
   withTokenHash,
   type McpGrantPolicy,
   type StoredMcpGrant,
-} from '../../src/mcp/credentials.ts';
-import { CompanyIdSchema, LineIdSchema } from '../../src/mcp/schemas.ts';
-import type { McpErrorCode, McpPhaseMode, McpQuotas, McpScope } from '../../src/mcp/types.ts';
+} from './mcp/credentials.ts';
+import { CompanyIdSchema, LineIdSchema } from './mcp/schemas.ts';
+import type { McpErrorCode, McpPhaseMode, McpQuotas, McpScope } from './mcp/types.ts';
 
 export const DEFAULT_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_GRANT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
