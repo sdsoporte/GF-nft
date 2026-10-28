@@ -50,7 +50,7 @@ for migration 5's forced reissuance requirement before any future deployment.
 
 ## Checks and remaining integration
 
-Run `bun test backend/test/grant-service.test.ts`. The suite covers one-time
+Run `bun test backend/tests/grant-service.test.ts`. The suite covers one-time
 issuance, no secret/hash in metadata, rejected-input no-write behavior,
 allowlist/identity isolation, revocation, expiry flags, restart and legacy-token
 rejection. The primitive is not a complete #7 fix until T4 owner-only HTTP and

@@ -11,14 +11,15 @@ pending entry silently turns into an assertion without this document following.
   its issue, and never fails CI. It exists so nobody can claim the bug is covered.
 
 The rule behind the split is assumption **A1** of
-[`odd/tasks/qa-test-suite.md`](../../odd/tasks/qa-test-suite.md): open P0 bugs are
+[`odd/tasks/qa-test-suite.md`](../../../odd/tasks/qa-test-suite.md): open P0 bugs are
 not fixed in the QA suite, so their tests start pending — never green-by-claim,
 never red-in-CI.
 
 ## Status
 
 Green means the regression is runnable on this branch, not that a remote issue
-was automatically closed. Issue #2 is fixed locally; its publication is pending.
+was automatically closed. Issues #2 and the current server/archive scope of #7 are asserted locally;
+publication and remote issue closure remain the maintainer's decisions.
 
 | Issue | Status | Issue title | Files holding its tests | What must change when the fix lands |
 | --- | --- | --- | --- | --- |
@@ -28,7 +29,7 @@ was automatically closed. Issue #2 is fixed locally; its publication is pending.
 | #4 | pending | [P0][Contratos] Validar comprador destinatario, propiedad y autocontratación | `backend/tests/mcp/isolation.test.ts`, `backend/tests/engine/contracts-lifecycle.test.ts` | Remove the `skip:` from the targeted-offer, seller-self-acceptance and MCP third-company acceptance tests once acceptance validates `targetBuyerId` and self-dealing, then flip this row and its three matrix entries to `green`. |
 | #5 | pending | [P0][Economía] Garantizar conservación de créditos en contratos y entregas parciales | `backend/tests/engine/contracts-expiration.test.ts`, `backend/tests/property/credits.test.ts` | Remove the two `skip:` markers in `contracts-expiration.test.ts` and convert the `test.todo` in `property/credits.test.ts` into an asserted test once default settlement pays the delivered units and conserves credits; then flip this row and its three matrix entries to `green`. |
 | #6 | green | [P0][Arquitectura] Ejecutar SimulatorEngine en backend autoritativo, no en React | `backend/tests/commands.test.ts`, `backend/tests/http-boundary.test.ts` | Nothing. The backend-owned clock, server-selected company and server-tick batch are asserted; a failure means the authoritative backend regressed. |
-| #7 | pending | [P0][Credenciales] Eliminar tokens MCP fijos y proteger la emisión/revocación de grants | `backend/tests/mcp/isolation.test.ts` | Remove the `skip:` from the re-registration test once fixed-token issuance is gone and `registerGrant` retires the previous token mapping, then flip this row and its matrix entry to `green`. |
+| #7 | green | [P0][Credenciales] Eliminar tokens MCP fijos y proteger la emisión/revocación de grants | `backend/tests/mcp-runtime.test.ts`, `backend/tests/owner-grants-http.test.ts`, `tests/integration/repository-boundaries.test.ts` | Asserted current scope: real server refuses fixture registration/demo credentials; grants require owner sessions and one-time delivery; retired web is outside active builds. No claim that the isolated legacy fixture's re-registration behavior was fixed. |
 
 Issue state above was read read-only with `gh issue view <n>` when this matrix was
 written: #1 and #6 are closed, #2, #3, #4, #5 and #7 are open.
@@ -70,3 +71,13 @@ bun test backend/tests/regressions
 - Green coverage for #6 is pinned in the backend suites (`backend/tests/*.test.ts`)
   because #6 moved the `SimulatorEngine` into the backend process; there is no
   separate `backend/tests/engine` regression file for it.
+
+## Retired demo coverage
+
+The user retired the browser application. Its old isolated `registerGrant`
+re-registration case remains skipped in `backend/tests/mcp/isolation.test.ts`;
+it was not deleted, silently asserted or fixed by this structural migration.
+The real server forbids raw registration entirely, so #7 now pins the active
+server/HTTP/archive boundary tests instead. This does not close GitHub #7 or
+claim that every legacy SDK mode has changed. Other #3–#5 skips/todo remain
+outside this migration.

@@ -12,7 +12,7 @@ coverage
 odd
 docs
 public
-gf
+game
 tests
 backend/tests
 backend/tsconfig.json
@@ -23,3 +23,18 @@ backend/tsconfig.json
 **/*.md
 .atl
 .DS_Store
+
+# Apply local secret/dependency/output exclusions at every workspace depth.
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/coverage
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+.codegraph
+.freebuff

@@ -13,11 +13,11 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)/game"
 
 usage() {
 	cat <<'EOF'
-Usage: run_backend_smoke.sh [--help]
+Usage: tests/integration/run_backend_smoke.sh [--help]
 
 Runs the actual backend seam through the visible Godot main scene. The scene
 connects, waits for a server snapshot, starts one R1 batch on an idle line,

@@ -13,9 +13,9 @@ bun run server
 ```
 
 Or use `docker compose up --build --detach --wait` instead of `bun run server`.
-Open `gf/project.godot`, run its main scene and connect to
+Open `game/project.godot`, run its main scene and connect to
 `http://127.0.0.1:8787` with that token. The complete startup and check commands
-are in [`../README.md`](../README.md) and [`../gf/README.md`](../gf/README.md).
+are in [`../README.md`](../README.md) and [`../game/README.md`](../game/README.md).
 
 ## Run boundary
 
@@ -23,7 +23,7 @@ are in [`../README.md`](../README.md) and [`../gf/README.md`](../gf/README.md).
 - Native defaults: `GF_HOST=127.0.0.1`, `GF_PORT=8787`; the server advances one tick per second.
 - `GF_API_TOKEN` is required, at least 32 characters, supplied through the environment. Do not log, commit or bake it into an image.
 - The token selects `comp_metal_01` on the server. Request parameters cannot select a company or match.
-- A new process creates a new match ID and in-memory match. Restart is not recovery; SQLite durability remains out of scope.
+- Without `GF_SQLITE_PATH`, a new process creates a new in-memory match ID. When configured (the Compose default), SQLite re-adopts the persisted match. This does not change the version-1 wire shapes.
 - The image binds `0.0.0.0` internally; Compose publishes to `127.0.0.1` by default. This is a local development deployment, not an internet-ready service.
 
 ## Authentication

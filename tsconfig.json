@@ -4,5 +4,5 @@
     "noEmit": true
   },
   "include": ["tests/integration/**/*.ts"],
-  "exclude": ["node_modules", "dist", "docs", "gf", "backend/src", "backend/tests"]
+  "exclude": ["node_modules", "dist", "docs", "game", "backend/src", "backend/tests"]
 }
