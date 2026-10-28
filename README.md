@@ -47,6 +47,7 @@ route.
 | Area | Path | Role |
 | --- | --- | --- |
 | Authoritative backend | `backend/` | Owns clock, commands and state; HTTP + CLI entrypoint and tests. |
+| Persistence | `src/persistence/` | Versioned migrations, transactional repositories and the SQLite settlement provider; enabled by `GF_SQLITE_PATH` (compose: named volume). |
 | Frozen protocol | `docs/factory-api.md` | Health, authenticated own-company state, one `R1` batch request, command status. |
 | Godot client | `gf/` | Renders server snapshots and sends production requests. |
 | React prototype | `src/` | Pre-existing local prototype; unchanged by this slice. |
@@ -60,11 +61,17 @@ bun run build         # Vite build of the prototype
 GF_API_TOKEN=... docker compose config --quiet
 ```
 
+CI runs the same three commands on every pull request, headless (no UI), from
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). A red run marks the PR;
+making the `test, lint, build (headless)` check merge-blocking is a
+branch-protection setting on GitHub (repository admin).
+
 ## Limits
 
-- In-memory state: restarting the process or container starts a new match.
+- State is in memory unless `GF_SQLITE_PATH` is set; `compose.yaml` enables it
+  on a named volume, so container restarts re-adopt the same match.
 - One server-selected factory and one recipe; contracts, wallets, NPC
-  automation, multi-process durability and the external game MCP remain backlog.
+  automation and the external game MCP remain backlog.
 - A shared bearer token on a loopback port is a development convenience, not
   internet-ready authentication.
 
