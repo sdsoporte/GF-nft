@@ -167,17 +167,17 @@ test('withTransaction commits on success and rolls back on failure', () => {
 
 // --- versioned migration runner ---------------------------------------------
 
-test('migrate applies version 1 to a fresh database', () => {
+test('migrate applies every registered migration to a fresh database', () => {
   withTempDatabase((path) => {
     const database = openDatabase(path);
     try {
       const run = migrate(database);
-      assert.deepEqual(run.appliedVersions, [1]);
-      assert.equal(run.currentVersion, 1);
-      assert.equal(getCurrentVersion(database), 1);
+      assert.deepEqual(run.appliedVersions, MIGRATIONS.map((migration) => migration.version));
+      assert.equal(run.currentVersion, MIGRATIONS.at(-1)!.version);
+      assert.equal(getCurrentVersion(database), MIGRATIONS.at(-1)!.version);
 
       const applied = getAppliedMigrations(database);
-      assert.equal(applied.length, 1);
+      assert.equal(applied.length, MIGRATIONS.length);
       assert.equal(applied[0].version, 1);
       assert.equal(applied[0].name, 'initial');
       assert.match(applied[0].appliedAtUtc, /^\d{4}-\d{2}-\d{2}T/);
@@ -378,9 +378,9 @@ test('migrate is idempotent when the database is reopened', () => {
     try {
       const run = migrate(second);
       assert.deepEqual(run.appliedVersions, []);
-      assert.equal(run.currentVersion, 1);
+      assert.equal(run.currentVersion, MIGRATIONS.at(-1)!.version);
       assert.deepEqual(listTables(second), tablesAfterFirstRun);
-      assert.equal(getAppliedMigrations(second).length, 1);
+      assert.equal(getAppliedMigrations(second).length, MIGRATIONS.length);
     } finally {
       closeDatabase(second);
     }
@@ -430,7 +430,7 @@ test('migrate refuses a database that already ran an unknown migration', () => {
           ]),
         /MigrationError/,
       );
-      assert.equal(getCurrentVersion(database), 1);
+      assert.equal(getCurrentVersion(database), MIGRATIONS.at(-1)!.version);
     } finally {
       closeDatabase(database);
     }

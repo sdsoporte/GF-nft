@@ -21,6 +21,7 @@ import type { Database } from 'bun:sqlite';
 
 import { withTransaction } from './database.ts';
 import { INITIAL_MIGRATION } from './migrations/001_initial.ts';
+import { RECOVERY_COLUMNS_MIGRATION } from './migrations/002_recovery_columns.ts';
 
 export interface Migration {
   readonly version: number;
@@ -62,7 +63,10 @@ const SELECT_APPLIED_SQL =
   'SELECT version, name, applied_at_utc FROM schema_migrations ORDER BY version ASC';
 
 /** The ordered migrations owned by this codebase. Append new versions only. */
-export const MIGRATIONS: readonly Migration[] = [INITIAL_MIGRATION];
+export const MIGRATIONS: readonly Migration[] = [
+  INITIAL_MIGRATION,
+  RECOVERY_COLUMNS_MIGRATION,
+];
 
 interface AppliedRow {
   readonly version: number;
