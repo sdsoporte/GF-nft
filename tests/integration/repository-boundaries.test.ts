@@ -350,7 +350,7 @@ describe('typecheck, container and CI scope follow the active backend', () => {
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith('#'));
 
-    for (const excluded of ['docs', 'tests', 'backend/tests', 'gf', '.env']) {
+    for (const excluded of ['docs', 'tests', 'backend/tests', 'game', '.env']) {
       assert.ok(ignored.includes(excluded), `.dockerignore must exclude ${excluded} from the build context`);
     }
   });

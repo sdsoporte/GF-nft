@@ -12,7 +12,7 @@ coverage
 odd
 docs
 public
-gf
+game
 tests
 backend/tests
 backend/tsconfig.json

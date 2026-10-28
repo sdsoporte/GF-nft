@@ -47,6 +47,6 @@ into it would create a second source of truth.
 ## Ownership
 
 - Active backend: `backend/` (engine, domain, persistence, MCP gateway, HTTP).
-- Active client: `gf/` Godot project.
+- Active client: `game/` Godot project.
 - Archive: this directory. Read-only history; delete only with maintainer
   approval and a replacement provenance link.

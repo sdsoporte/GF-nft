@@ -12,7 +12,9 @@
     "clean": "rm -rf backend/dist",
     "lint": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p tsconfig.json",
     "test": "bun test backend/tests tests/integration",
-    "test:backend": "bun test backend/tests"
+    "test:backend": "bun test backend/tests",
+    "test:game": "bash game/tests/run_checks.sh",
+    "test:integration": "bash tests/integration/run_backend_smoke.sh"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

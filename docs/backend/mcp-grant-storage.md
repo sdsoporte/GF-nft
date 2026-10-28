@@ -6,8 +6,8 @@ in the following service work unit; HTTP administration remains T4.
 
 ## Quick path
 
-1. Read `src/mcp/credentials.ts` for secret, digest and metadata shapes.
-2. Read `src/persistence/repos/grants.ts` for validated transactional writes.
+1. Read `backend/src/mcp/credentials.ts` for secret, digest and metadata shapes.
+2. Read `backend/src/persistence/repos/grants.ts` for validated transactional writes.
 3. Run `bun test tests/persistence/grant-credentials.test.ts`.
 4. Plan owner-authenticated reissuance before deploying migration 5.
 

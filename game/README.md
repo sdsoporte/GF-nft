@@ -5,7 +5,7 @@ match, its tick clock and every mutation. The screen reads snapshots, shows the
 metal factory that the server selected, and asks the server to start one R1
 batch. Nothing in GDScript ticks, spends or produces resources.
 
-The contract is frozen in [`../docs/factory-api.md`](../docs/factory-api.md).
+The contract is frozen in [`../contracts/factory-api.md`](../contracts/factory-api.md).
 Read that file before changing request or response shapes.
 
 ## Quick path
@@ -14,7 +14,7 @@ Read that file before changing request or response shapes.
 
    ```bash
    export GF_API_TOKEN="$(openssl rand -hex 32)"
-   # run the backend entrypoint documented in docs/factory-api.md
+   # run the backend entrypoint documented in contracts/factory-api.md
    ```
 
    Native development listens on `http://127.0.0.1:8787`. The Docker path
@@ -22,13 +22,13 @@ Read that file before changing request or response shapes.
    There is **no built-in token**: the server refuses to start without
    `GF_API_TOKEN`, and this client ships no default credential.
 
-2. Open this folder (`gf/`) in Godot 4.7 and run the main scene, or launch it with
+2. Open this folder (`game/`) in Godot 4.7 and run the main scene, or launch it with
    the environment already set:
 
    ```bash
    GF_BACKEND_URL=http://127.0.0.1:8787 \
    GF_API_TOKEN="$GF_API_TOKEN" \
-     /path/to/Godot_v4.7.2 --path gf
+     /path/to/Godot_v4.7.2 --path game
    ```
 
 3. Press **Connect**, then **Start one R1 batch**. Watch the tick advance and the
@@ -80,7 +80,7 @@ Real backend seam (parent-owned integration step):
 GODOT_BIN=/path/to/Godot_v4.7.2-stable_linux.x86_64 \
 GF_API_TOKEN="$GF_API_TOKEN" \
 GF_BACKEND_URL=http://127.0.0.1:8787 \
-  bash tests/run_backend_smoke.sh
+  bash ../tests/integration/run_backend_smoke.sh
 ```
 
 The smoke opens the visible scene, starts one R1 batch, waits for the command to
@@ -101,8 +101,9 @@ checkout runs without Funplay. To keep the plugin available locally, create
 ## Limits of this slice
 
 - One metallurgy company and one recipe (R1) on an idle line.
-- No contracts, wallets, NPC automation or durable storage.
-- Backend restart loses the in-memory match; Docker is not persistence.
+- The visible slice does not expose contracts, wallets or NPC automation.
+- An unconfigured backend is in memory; with `GF_SQLITE_PATH` (the Compose
+  default), SQLite re-adopts the match after restart. See the backend guide.
 - Loopback deployment only; this is not an internet-ready authentication story.
 - Server identity: `https://` relies on the platform CA store, and the token
   proves the client to the server, not the server to the client. `/health` is

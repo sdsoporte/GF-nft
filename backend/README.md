@@ -5,10 +5,10 @@ Godot reads this authoritative state and sends requests. The retired React
 prototype is archived under [`../docs/archive/web-demo/`](../docs/archive/web-demo/README.md)
 as historical source only — not a runnable app and never a real credential
 issuer. The wire contract is frozen in
-[`../docs/factory-api.md`](../docs/factory-api.md).
+[`../contracts/factory-api.md`](../contracts/factory-api.md).
 
 This is a first operable slice, not a finished service: one metallurgy factory,
-one `R1` batch command, in-memory state, local deployment.
+one `R1` batch command, optional SQLite state, local deployment.
 
 ## Quick path
 
@@ -41,7 +41,7 @@ curl -s -H "Authorization: Bearer $GF_API_TOKEN" \
 | `bun run server` | Start the HTTP service with the environment below. |
 | `bun backend/main.ts --help` | Print usage, environment and routes; exits without serving. |
 | `bun run test:backend` (or `bun test backend/tests`) | Backend HTTP + CLI tests. |
-| `bun test` | Scoped suite: `backend/tests` plus `tests/integration`. |
+| `bun run test` | Scoped suite: `backend/tests` plus `tests/integration`. |
 | `bun run lint` | `tsc --noEmit` over the backend and the integration tests. |
 | `docker compose up --build` | Build and run the container, publishing loopback only. |
 
@@ -74,7 +74,7 @@ usage text.
 With `GF_OWNER_ID` configured, owner-session authentication protects grant
 creation, listing, lookup and revocation. Only issuance returns an opaque secret;
 storage keeps SHA-256 and metadata reads expose neither secret nor digest.
-See [the owner API quick path](../docs/mcp-owner-api.md) for endpoints, scope/TTL
+See [the owner API quick path](../docs/backend/mcp-owner-api.md) for endpoints, scope/TTL
 policy, restart semantics and migration 5's mandatory legacy-grant reissuance.
 External MCP transport/catalog remains issue #9; embedding callers use the
 server-owned gateway with durable command admission. The image copies only the
@@ -140,7 +140,7 @@ curl -s http://127.0.0.1:8787/health
 
 Set `GF_SQLITE_PATH` to persist the match to a SQLite file (`bun:sqlite`, no
 extra dependency). On boot the server creates the parent directory, opens the
-database, applies the versioned migrations (3 so far) and adopts an existing
+database, applies the versioned migrations (1–5) and adopts an existing
 match — identity, seed, tick interval, command queue, processed idempotency
 keys, acknowledgement ledger, execution history and the full engine state — or
 persists the opening snapshot of a fresh match. Every accepted command and
@@ -176,5 +176,5 @@ the same acknowledgement instead of duplicating a movement.
 
 ## Next step
 
-- Wire the Godot client: [`../gf/README.md`](../gf/README.md).
-- Re-read the contract before any protocol change: [`../docs/factory-api.md`](../docs/factory-api.md).
+- Wire the Godot client: [`../game/README.md`](../game/README.md).
+- Re-read the contract before any protocol change: [`../contracts/factory-api.md`](../contracts/factory-api.md).

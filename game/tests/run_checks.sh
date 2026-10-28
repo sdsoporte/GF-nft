@@ -14,9 +14,9 @@ DEFAULT_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-30}"
 
 usage() {
 	cat <<'EOF'
-Usage: run_checks.sh [--help] [suite ...]
+Usage: game/tests/run_checks.sh [--help] [suite ...]
 
-Runs the Godot client checks in an isolated copy of gf/.
+Runs the Godot client checks in an isolated copy of game/.
 
 Environment:
   GODOT_BIN                 Path to a Godot 4.7 executable. Required unless
@@ -65,7 +65,7 @@ done
 
 if [[ -z "$GODOT_BIN" || ! -x "$GODOT_BIN" ]]; then
 	echo "ERROR: set GODOT_BIN to a Godot 4.7 executable, for example:" >&2
-	echo "  GODOT_BIN=/home/s/dev/App/Godot_v4.7.2-stable_linux.x86_64 bash gf/tests/run_checks.sh" >&2
+	echo "  GODOT_BIN=/path/to/Godot_v4.7.2-stable_linux.x86_64 bash game/tests/run_checks.sh" >&2
 	exit 2
 fi
 
