@@ -19,6 +19,12 @@ export interface McpQuotas {
   readonly maxWritePerMatch: number; // default: 500
 }
 
+/** Trusted server-owned identity bindings, independent of any presented grant. */
+export interface McpAuthorizationContext {
+  readonly matchId: string;
+  readonly companyPlayers: Readonly<Record<string, string>>;
+}
+
 export interface McpGrant {
   readonly grantId: string;
   readonly token: string; // "gf_mcp_..."

@@ -59,7 +59,13 @@ export default function App() {
     eng.initializeStandardMatch();
     engineRef.current = eng;
 
-    const gw = new McpGateway(eng);
+    const gw = new McpGateway(eng, {
+      matchId: 'match_alpha_04',
+      companyPlayers: {
+        comp_metal_01: 'usr_sergio_01',
+        comp_manuf_01: 'usr_elena_02',
+      },
+    });
     // Seed initial grants
     gw.registerGrant({
       grantId: 'mcp_grant_99182',

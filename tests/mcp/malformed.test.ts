@@ -130,14 +130,15 @@ describe('read payload validation', () => {
     }
   });
 
-  test('a well-formed identifier for an absent company fails inside the read tool', async () => {
+  test('a well-formed identifier outside the grant is an authorization denial', async () => {
     const { gateway, token } = permissiveFixture();
 
     const failure = expectError(
       await gateway.invokeTool(token, 'get_factory_overview', overviewParams('comp_absent_09')),
-      'ERR_INVALID_PAYLOAD'
+      'ERR_RESOURCE_NOT_ALLOWED'
     );
-    assert.match(failure.errorMessage, /Company not found/);
+    assert.equal(failure.errorMessage, 'Requested company is not authorized by this grant');
+    assert.equal('data' in failure, false);
   });
 
   test('query bounds on quotes and history are enforced', async () => {

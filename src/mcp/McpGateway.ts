@@ -17,6 +17,7 @@
 import { SimulatorEngine } from '../engine/SimulatorEngine.ts';
 import {
   McpAuditLogEntry,
+  McpAuthorizationContext,
   McpErrorCode,
   McpGrant,
   McpResponse,
@@ -109,7 +110,16 @@ export class McpGateway {
   private auditLogs: McpAuditLogEntry[] = [];
   private logCounter = 0;
 
-  constructor(private readonly engine: SimulatorEngine) {}
+  private readonly authorizedMatchId: string | undefined;
+  private readonly companyPlayers: ReadonlyMap<string, string>;
+
+  constructor(
+    private readonly engine: SimulatorEngine,
+    authorization?: McpAuthorizationContext
+  ) {
+    this.authorizedMatchId = authorization?.matchId;
+    this.companyPlayers = new Map(Object.entries(authorization?.companyPlayers ?? {}));
+  }
 
   /**
    * Register or provision a grant
@@ -248,6 +258,35 @@ export class McpGateway {
 
     const isWriteTool = WRITE_TOOLS.has(typedTool);
 
+    // Identity comes from server-owned bindings, not grant/payload assertions.
+    // Reject before quotas; failed authorization must not consume a read/write.
+    if (
+      !grant.playerId ||
+      !grant.matchId ||
+      grant.matchId !== this.authorizedMatchId ||
+      this.companyPlayers.get(grant.companyId) !== grant.playerId ||
+      !this.engine.getCompany(grant.companyId)
+    ) {
+      return this.recordFailure(
+        startTime, currentTick, grant.grantId, grant.companyId, toolName, payloadHash,
+        'ERR_RESOURCE_NOT_ALLOWED',
+        'Grant identity is not authorized for this match and company'
+      );
+    }
+
+    // All private read schemas share company_id. Preserve malformed-payload
+    // validation below; a valid foreign target is an authorization denial.
+    if (!isWriteTool && typedTool !== 'get_market_quotes') {
+      const target = GetFactoryOverviewSchema.safeParse(rawParams);
+      if (target.success && target.data.company_id !== grant.companyId) {
+        return this.recordFailure(
+          startTime, currentTick, grant.grantId, grant.companyId, toolName, payloadHash,
+          'ERR_RESOURCE_NOT_ALLOWED',
+          'Requested company is not authorized by this grant'
+        );
+      }
+    }
+
     // Step 3: Phase Mode Enforcement
     if (isWriteTool && grant.phaseMode === 'PHASE_1_READ_ONLY') {
       return this.recordFailure(
@@ -326,11 +365,8 @@ export class McpGateway {
   ): Promise<McpResponse> {
     switch (tool) {
       case 'get_factory_overview': {
-        const parsed = GetFactoryOverviewSchema.parse(rawParams);
-        const company = this.engine.getCompany(parsed.company_id);
-        if (!company) {
-          throw new Error(`Company not found: ${parsed.company_id}`);
-        }
+        GetFactoryOverviewSchema.parse(rawParams);
+        const company = this.engine.getCompany(grant.companyId)!;
 
         const bottlenecks: string[] = [];
         if (company.energy < 30) bottlenecks.push('CRITICAL_ENERGY_DEFICIT');
@@ -357,11 +393,8 @@ export class McpGateway {
       }
 
       case 'get_inventory': {
-        const parsed = GetInventorySchema.parse(rawParams);
-        const company = this.engine.getCompany(parsed.company_id);
-        if (!company) {
-          throw new Error(`Company not found: ${parsed.company_id}`);
-        }
+        GetInventorySchema.parse(rawParams);
+        const company = this.engine.getCompany(grant.companyId)!;
 
         const items = Object.entries(company.inventory).map(([itemId, stock]) => ({
           item_id: itemId,
@@ -373,11 +406,8 @@ export class McpGateway {
       }
 
       case 'get_production_lines': {
-        const parsed = GetProductionLinesSchema.parse(rawParams);
-        const company = this.engine.getCompany(parsed.company_id);
-        if (!company) {
-          throw new Error(`Company not found: ${parsed.company_id}`);
-        }
+        GetProductionLinesSchema.parse(rawParams);
+        const company = this.engine.getCompany(grant.companyId)!;
 
         const lines = company.lines.map((l) => ({
           line_id: l.lineId,
@@ -400,7 +430,7 @@ export class McpGateway {
         const filtered = allContracts
           .filter(
             (c) =>
-              (c.sellerCompanyId === parsed.company_id || c.buyerCompanyId === parsed.company_id) &&
+              (c.sellerCompanyId === grant.companyId || c.buyerCompanyId === grant.companyId) &&
               (!parsed.status || c.status === parsed.status)
           )
           .map((c) => ({

@@ -93,7 +93,15 @@ export interface GatewayFixture {
 export function createGatewayFixture(grants: readonly McpGrant[] = []): GatewayFixture {
   const engine = new SimulatorEngine();
   engine.initializeStandardMatch();
-  const gateway = new McpGateway(engine);
+  const gateway = new McpGateway(engine, {
+    matchId: 'match_qa_s4',
+    companyPlayers: {
+      [TENANT_A]: `player_${TENANT_A}`,
+      [TENANT_B]: `player_${TENANT_B}`,
+      comp_manuf_01: 'player_comp_manuf_01',
+      comp_manuf_02: 'player_comp_manuf_02',
+    },
+  });
   for (const grant of grants) {
     gateway.registerGrant(grant);
   }
