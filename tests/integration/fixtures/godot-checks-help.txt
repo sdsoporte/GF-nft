@@ -1,0 +1,24 @@
+Usage: game/tests/run_checks.sh [--help] [suite ...]
+
+Runs the Godot client checks in an isolated copy of game/.
+
+Environment:
+  GODOT_BIN                 Path to a Godot 4.7 executable. Required unless
+                            `godot` is on PATH.
+  CHECK_TIMEOUT_SECONDS     Per-step timeout in seconds (default: 30).
+
+Arguments:
+  suite                     Optional suite name without `.gd`, for example
+                            `test_protocol`. Defaults to every `tests/test_*.gd`.
+
+Scratch directory:
+  A fresh `mktemp -d` project copy is created for every run. It excludes
+  `.godot/`, `override.cfg` and `addons/funplay_mcp/`, so the tracked project is
+  proven to run without the optional editor plugin. XDG data/config/cache
+  directories point inside that scratch copy. The path is printed at the end;
+  delete it yourself when you are done inspecting it.
+
+Exit codes:
+  0  all requested suites and the scene boot check passed
+  1  a check failed
+  2  configuration or environment problem

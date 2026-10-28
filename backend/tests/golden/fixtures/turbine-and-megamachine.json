@@ -1,0 +1,110 @@
+{
+  "digestEvery": 10,
+  "finalState": {
+    "acceptedIdempotencyKeys": ["idem_turbine-and-megamachine_1","idem_turbine-and-megamachine_2","idem_turbine-and-megamachine_3"],
+    "companies": [
+      {
+        "companyId": "gf_assembly",
+        "contributedMegamachinePartsR8": 0,
+        "credits": 10000,
+        "energy": 1000,
+        "energyGenerationPerTick": 20,
+        "industrialClass": "CLASS_B_MANUFACTURING",
+        "installedTurbinesR7": 0,
+        "inventory": {
+          "CTRL_CIRCUIT": {"available":0,"reserved":0},
+          "HEAVY_ALLOY": {"available":0,"reserved":0},
+          "IND_TURBINE": {"available":0,"reserved":0},
+          "IRON_INGOT": {"available":0,"reserved":0},
+          "MECH_FRAME": {"available":0,"reserved":0},
+          "MEGAMACHINE_PART": {"available":0,"reserved":0},
+          "POWER_MODULE": {"available":0,"reserved":0},
+          "RAW_ORE": {"available":650,"reserved":0},
+          "STEEL_PLATE": {"available":0,"reserved":0}
+        },
+        "isNPC": false,
+        "lines": [
+          {"activeBatch":null,"companyId":"gf_assembly","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_assembly_line_1","priority":1,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_assembly","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_assembly_line_2","priority":2,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_assembly","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_assembly_line_3","priority":3,"status":"IDLE","totalBatchesProduced":0}
+        ],
+        "maintenancePaidTicks": 3,
+        "maxEnergyStorage": 1000,
+        "name": "Assembly Works",
+        "reputation": 100
+      },
+      {
+        "companyId": "gf_forge",
+        "contributedMegamachinePartsR8": 12,
+        "credits": 9900,
+        "energy": 1210,
+        "energyGenerationPerTick": 35,
+        "industrialClass": "CLASS_A_METALLURGY",
+        "installedTurbinesR7": 1,
+        "inventory": {
+          "CTRL_CIRCUIT": {"available":0,"reserved":0},
+          "HEAVY_ALLOY": {"available":0,"reserved":0},
+          "IND_TURBINE": {"available":0,"reserved":0},
+          "IRON_INGOT": {"available":195,"reserved":0},
+          "MECH_FRAME": {"available":0,"reserved":0},
+          "MEGAMACHINE_PART": {"available":0,"reserved":0},
+          "POWER_MODULE": {"available":0,"reserved":0},
+          "RAW_ORE": {"available":260,"reserved":0},
+          "STEEL_PLATE": {"available":0,"reserved":0}
+        },
+        "isNPC": false,
+        "lines": [
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":"R1","lastActionTick":1,"lineId":"gf_forge_line_1","priority":1,"status":"PAUSED","totalBatchesProduced":39},
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_forge_line_2","priority":2,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":null,"lastActionTick":0,"lineId":"gf_forge_line_3","priority":3,"status":"IDLE","totalBatchesProduced":0},
+          {"activeBatch":null,"companyId":"gf_forge","currentRecipeId":null,"lastActionTick":901,"lineId":"gf_forge_line_4","priority":2,"status":"IDLE","totalBatchesProduced":0}
+        ],
+        "maintenancePaidTicks": 3,
+        "maxEnergyStorage": 1250,
+        "name": "GigaForge Metallurgy",
+        "reputation": 100
+      }
+    ],
+    "contracts": [],
+    "executionHistory": [
+      {"commandId":"cmd_turbine-and-megamachine_1","companyId":"gf_forge","executedAtTick":1,"idempotencyKey":"idem_turbine-and-megamachine_1","success":true},
+      {"commandId":"cmd_turbine-and-megamachine_2","companyId":"gf_forge","executedAtTick":901,"idempotencyKey":"idem_turbine-and-megamachine_2","success":true},
+      {"commandId":"cmd_turbine-and-megamachine_3","companyId":"gf_forge","executedAtTick":905,"idempotencyKey":"idem_turbine-and-megamachine_3","success":true}
+    ],
+    "globalProject": {"completedAtTick":905,"deliveredMegamachineParts":12,"isVictorious":true,"requiredMegamachineParts":12},
+    "netWorth": [
+      {"companyId":"gf_assembly","credits":10000,"netWorth":15000,"r7InstalledCredits":0,"r8ContributedCredits":0,"reputationCredits":5000},
+      {"companyId":"gf_forge","credits":9900,"netWorth":88900,"r7InstalledCredits":2000,"r8ContributedCredits":72000,"reputationCredits":5000}
+    ],
+    "pendingCommandCount": 0,
+    "stateHash": "14624a47",
+    "tick": 906
+  },
+  "lineStatusTimeline": [
+    "gf_assembly/gf_assembly_line_1 I100 I100 I100 I100 I100 I100 I100 I100 I100 I6",
+    "gf_assembly/gf_assembly_line_2 I100 I100 I100 I100 I100 I100 I100 I100 I100 I6",
+    "gf_assembly/gf_assembly_line_3 I100 I100 I100 I100 I100 I100 I100 I100 I100 I6",
+    "gf_forge/gf_forge_line_1 R100 R100 R100 R89P11 P100 P100 P100 P100 P100 P6",
+    "gf_forge/gf_forge_line_2 I100 I100 I100 I100 I100 I100 I100 I100 I100 I6",
+    "gf_forge/gf_forge_line_3 I100 I100 I100 I100 I100 I100 I100 I100 I100 I6",
+    "gf_forge/gf_forge_line_4 I6"
+  ],
+  "note": "Ticks to 906: maintenance x3, turbine expansion at 901, victorious delivery at 905.",
+  "scenario": "turbine-and-megamachine",
+  "seed": 777,
+  "tickDigest": [
+    "1=b49c2a25 11=e71d7ec0 21=2efecacc 31=1b3a806a 41=8efe37f1 51=9f92378c 61=8c4050bf 71=b1db6ebe",
+    "81=ad2d79ed 91=a1e034a8 101=93101753 111=d7602402 121=067c23ea 131=530b8bf7 141=7d6b2128 151=e35770d9",
+    "161=dcfc1b66 171=946d0813 181=e2f8683c 191=3e5aa0ad 201=876c3192 211=700d1d3f 221=18be2630 231=5d1ecdc1",
+    "241=ecc61ede 251=ba44a84b 261=4680aec7 271=ebf5aeda 281=ba536fb9 291=2dbdea78 301=06b42dc0 311=269a5c05",
+    "321=449fe692 331=297cc86b 341=aff5f9cc 351=7713da89 361=ed22f306 371=9083ec87 381=eb714668 391=afb6f3a1",
+    "401=f3faa527 411=fde63201 421=252cf58f 431=5f437c01 441=8837523f 451=5eb330c9 461=b78e079f 471=8cc549d1",
+    "481=7bb516f7 491=627f5791 501=e76f502f 511=8adc1fa1 521=270430c2 531=fc69ec60 541=36b968d2 551=b43ee640",
+    "561=d9c4dfaa 571=35965208 581=ce6b0bf2 591=369928d0 601=abe242f2 611=203c1be0 621=83667bf2 631=e2666ec5",
+    "641=3d7d3f6f 651=7a4f5cc1 661=bdd4e8fb 671=43f8d81d 681=68a26dff 691=a7c50689 701=4dd0913b 711=148bd815",
+    "721=a4eb855f 731=620904b1 741=dfee70fb 751=4bcd274d 761=f1dbe7df 771=b76295a6 781=3ace7a48 791=be49df22",
+    "801=6387e2ac 811=926b3f36 821=4dbeb400 831=bec99c12 841=4278d994 851=4def5d96 861=b4b06d08 871=8f263b42",
+    "881=6b0b969c 891=9a857cd6 901=1c35bd6d 906=14624a47"
+  ],
+  "totalTicks": 906
+}
