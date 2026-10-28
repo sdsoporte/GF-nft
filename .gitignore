@@ -1,8 +1,36 @@
-node_modules/
+# Dependencies (also ignore local symlinks).
+node_modules
+
+# Generated builds, coverage and logs.
 build/
 dist/
 coverage/
-.DS_Store
 *.log
+.DS_Store
+
+# Local secrets; only non-secret templates may be versioned.
 .env*
 !.env.example
+
+# Local runtime databases and their SQLite sidecars.
+/data/
+/backend/data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Godot caches/exports; keep project.godot, .uid and source resources.
+.godot/
+/game/exports/
+/game/addons/godot_ai/
+
+# Generated local code-intelligence/editor caches, not product source.
+.codegraph/
+.atl/
+.freebuff/

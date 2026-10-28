@@ -1,0 +1,16 @@
+{
+  "name": "@gigaforge/backend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Authoritative factory backend: clock, command queue, engine, persistence and MCP gateway.",
+  "main": "main.ts",
+  "scripts": {
+    "start": "bun main.ts",
+    "test": "bun test tests",
+    "build": "bun build main.ts --target=bun --outdir=dist"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}

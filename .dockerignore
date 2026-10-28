@@ -1,8 +1,8 @@
-# Keep the build context small and free of secrets. The image copies only the
-# backend entrypoint plus src/domain, src/engine and src/persistence, so
-# anything listed here is either unused build context or must never reach an
-# image layer. The in-memory settlement demo stays out (browser-only); its
-# domain interfaces ship because the authentic SQLite provider needs them.
+# Keep the build context small and free of secrets. The image copies only
+# backend/package.json, backend/main.ts and backend/src (domain, engine, mcp,
+# persistence), so anything listed here is either unused build context or must
+# never reach an image layer. The archived web demo (docs/archive/web-demo),
+# the tests, the game project and local env files stay out.
 .git
 .gitignore
 node_modules
@@ -12,13 +12,10 @@ coverage
 odd
 docs
 public
-gf
-vite.config.ts
-index.html
-src/App.tsx
-src/main.tsx
-src/mcp
-src/persistence/InMemorySettlementProvider.ts
+game
+tests
+backend/tests
+backend/tsconfig.json
 .env
 .env.*
 *.log
@@ -26,3 +23,18 @@ src/persistence/InMemorySettlementProvider.ts
 **/*.md
 .atl
 .DS_Store
+
+# Apply local secret/dependency/output exclusions at every workspace depth.
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/coverage
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+.codegraph
+.freebuff
