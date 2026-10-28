@@ -15,23 +15,34 @@
 import type { Database } from 'bun:sqlite';
 
 import { runAtomic } from '../transaction.ts';
+import { AckLedgerRepository } from './ackLedger.ts';
+import { CommandQueueRepository } from './commandQueue.ts';
+import { CommandResultRepository } from './commandResults.ts';
 import { CompanyRepository } from './companies.ts';
 import { ContractRepository } from './contracts.ts';
 import { EscrowRepository } from './escrows.ts';
 import { GrantRepository } from './grants.ts';
 import { InventoryRepository } from './inventory.ts';
 import { LotRepository } from './lots.ts';
+import { MatchMetadataRepository } from './matches.ts';
 import { ProductionLineRepository } from './lines.ts';
 import { ReservationRepository } from './reservations.ts';
 import type { CompanyRecord, CompanyStateWrite } from './types.ts';
 
 export * from './types.ts';
+export {
+  AckLedgerCapacityError,
+  AckLedgerRepository,
+} from './ackLedger.ts';
+export { CommandQueueRepository } from './commandQueue.ts';
+export { CommandResultRepository } from './commandResults.ts';
 export { CompanyRepository } from './companies.ts';
 export { ContractRepository, type ContractListFilter } from './contracts.ts';
 export { EscrowRepository, type EscrowListFilter } from './escrows.ts';
 export { GrantRepository, type AuditListFilter, type GrantListFilter } from './grants.ts';
 export { InventoryRepository } from './inventory.ts';
 export { LotRepository, type LotListFilter } from './lots.ts';
+export { MatchMetadataRepository } from './matches.ts';
 export { ProductionLineRepository } from './lines.ts';
 export { ReservationRepository, type ReservationListFilter } from './reservations.ts';
 
@@ -45,6 +56,11 @@ export class Repositories {
   readonly escrows: EscrowRepository;
   readonly reservations: ReservationRepository;
   readonly grants: GrantRepository;
+  /** Per-match metadata plus the queue/idempotency/ack/history rows (T3). */
+  readonly matches: MatchMetadataRepository;
+  readonly queue: CommandQueueRepository;
+  readonly ackLedger: AckLedgerRepository;
+  readonly commandResults: CommandResultRepository;
 
   constructor(database: Database) {
     this.database = database;
@@ -56,6 +72,10 @@ export class Repositories {
     this.escrows = new EscrowRepository(database);
     this.reservations = new ReservationRepository(database);
     this.grants = new GrantRepository(database);
+    this.matches = new MatchMetadataRepository(database);
+    this.queue = new CommandQueueRepository(database);
+    this.ackLedger = new AckLedgerRepository(database);
+    this.commandResults = new CommandResultRepository(database);
   }
 
   /**

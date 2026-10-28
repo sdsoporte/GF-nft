@@ -68,6 +68,108 @@ export interface ReleaseReservationRequest {
   readonly atTick?: number;
 }
 
+// --- match metadata, command queue, idempotency, ack ledger, history --------
+// (S3) These rows are what a restart reads back: match-level counters, the
+// pending command mirrors, the permanent idempotency keys, the HTTP
+// acknowledgement ledger and the append-only execution history.
+
+/**
+ * `matches` as read back. Every column is exposed because these five numbers
+ * are exactly what boot adoption restores; nothing is stored that cannot be
+ * read back.
+ */
+export interface MatchMetadataRecord {
+  readonly matchId: string;
+  readonly seed: number;
+  readonly currentTick: number;
+  readonly sequenceCounter: number;
+  readonly historyCursor: number;
+  readonly tickIntervalMs: number;
+  readonly createdAtUtc: string;
+  readonly updatedAtUtc: string;
+}
+
+/** `matches` write input: timestamps are optional (boot fills them). */
+export interface MatchMetadataWrite {
+  readonly matchId: string;
+  readonly seed: number;
+  readonly currentTick: number;
+  readonly sequenceCounter: number;
+  readonly historyCursor: number;
+  readonly tickIntervalMs: number;
+  readonly createdAtUtc?: string;
+  readonly updatedAtUtc?: string;
+}
+
+/** One pending command mirror (`match_command_queue`) as read back. */
+export interface QueuedCommandRecord {
+  readonly commandId: string;
+  readonly matchId: string;
+  readonly companyId: string;
+  readonly sequenceNumber: number;
+  readonly scheduledTick: number;
+  readonly idempotencyKey: string;
+  readonly commandType: string;
+  readonly payloadJson: string;
+  readonly createdAtUtc: string;
+}
+
+/** Queue write input; the polymorphic command body travels as JSON. */
+export type QueuedCommandWrite = Omit<QueuedCommandRecord, 'createdAtUtc'> & {
+  readonly createdAtUtc?: string;
+};
+
+/** One permanent dedupe key (`match_processed_idempotency_keys`). */
+export interface ProcessedIdempotencyRecord {
+  readonly matchId: string;
+  readonly idempotencyKey: string;
+  readonly commandId: string;
+  readonly processedAtUtc: string;
+}
+
+export type ProcessedIdempotencyWrite = Omit<ProcessedIdempotencyRecord, 'processedAtUtc'> & {
+  readonly processedAtUtc?: string;
+};
+
+/** One acknowledgement row (`match_ack_ledger`). */
+export interface AckLedgerRecord {
+  readonly matchId: string;
+  readonly requestId: string;
+  readonly fingerprint: string;
+  readonly commandId: string;
+  readonly acknowledgedAtUtc: string;
+}
+
+/**
+ * Ack-ledger write input. `capacity` is the match-level retention limit
+ * (`MAX_ACKNOWLEDGED_REQUESTS`); a full ledger rejects the write instead of
+ * evicting a durable acknowledgement (see `AckLedgerRepository`).
+ */
+export interface AckLedgerWrite {
+  readonly matchId: string;
+  readonly requestId: string;
+  readonly fingerprint: string;
+  readonly commandId: string;
+  readonly acknowledgedAtUtc?: string;
+  readonly capacity: number;
+}
+
+/** One execution-history row (`match_command_results`) as read back. */
+export interface CommandResultRecord {
+  readonly matchId: string;
+  readonly historyIndex: number;
+  readonly commandId: string;
+  readonly idempotencyKey: string;
+  readonly executedAtTick: number;
+  readonly success: boolean;
+  readonly errorCode?: string;
+  readonly errorMessage?: string;
+}
+
+export type CommandResultWrite = Omit<CommandResultRecord, 'matchId'> & {
+  readonly matchId: string;
+};
+
 /**
  * Not enough available (unreserved) stock to reserve. Carries the numbers the
  * HTTP/MCP layers need to build `ERR_INSUFFICIENT_INVENTORY`.
