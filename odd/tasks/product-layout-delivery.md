@@ -37,8 +37,8 @@ Tracker `chore/mcp-security` targets main and carries final closing references. 
 
 - **D1** [S1-S3] — **done** — Verify target/actor/default/protection/issues and slice ancestry. Route: parent read-only GitHub discovery. Evidence: target-bound logs in `.git/odd-logs/delivery/`, admin, required context, no open PR/template/forms, blank issues explicitly enabled, no layout duplicate. Commit: `b33c0b6f5f97e546cce561db5437f21ca1ad18d3`.
 - **D2** [S1-S3] — **done** — Record delivery, materialize approved labels/issue and branches. Route: parent bounded remote actions, exact pre/post readback. Commit: `e375119b11e0ff50d5f525cceaf33cfa9907b0cb`. Risk: item5 (remote delivery metadata).
-- **D3** [S1-S3] — **in_progress** — Push intended refs, publish draft tracker and9 linked child PRs with exact one type and dependency diagrams. Route: parent. Evidence: pending remote IDs/heads. Risk: item5.
-- **D4** [S1] — **pending** — Observe exact-head required CI; merge9→1 then ready/merge tracker without bypass. Route: bounded background GitHub watcher, no source writer. Evidence: pending. Risk: item5.
+- **D3** [S1-S3] — **done** — Push intended refs, publish draft tracker and9 linked child PRs with exact one type and dependency diagrams. Route: parent. Evidence: draft tracker#23 and children#24–#32, exact source heads/labels read back in published-chain.json. Risk: item5.
+- **D4** [S1] — **in_progress** — Observe exact-head required CI; merge9→1 then ready/merge tracker without bypass. Route: bounded background GitHub watcher, no source writer. Evidence: pending. Risk: item5.
 - **D5** [S1-S3] — **pending** — Verify main tree/postmerge CI, mark evidenced issue criteria/closures, sync local main and document final remote results. Route: parent. Evidence: pending. Risk: item5.
 
 ## Log
@@ -54,3 +54,19 @@ Tracker `chore/mcp-security` targets main and carries final closing references. 
 - **L6 — Reconciliation / safe stop**: read-only job23 confirmed0 of the10 intended remote refs exist after rejection. Push outcome is authoritative no_write; no tracker/child PR exists, no merge/checks/issue closure occurred. #22 and6 authorized labels remain confirmed. Preserve the blocked local checkpoint; resume only after the human renews the active credential's workflow permission, fresh target/scopes/ref validation, then the already authorized push/PR/merge plan. No alternate identity, CI edit to evade scope, force operation or automatic retry.
 
 - **L7 — Credential precondition resolved**: human reports (verbatim) "✓ Authentication complete." Fresh read-only job24 confirms active workflow OAuth scope, same target/actorsdsoporte ADMIN/defaultmain, approved#2/#7/#22,0 existing chain refs/PRs and unchangedmainc24e719. The previous atomic push remains reconciled no_write; preserve that receipt. Resume the already authorized publication with fresh final head, not an automatic retry of unknown/denied state. No deployment/native-consent/protection changes.
+
+- **L8 — D3 publication confirmed**: job25 exit0, atomic10 intendedrefs push+readback confirmed after refreshedscope; drafttracker https://github.com/sdsoporte/GF-nft/pull/23 and ninechilds#24–#32 eachcreatedonce+exactbody/head/base/type readback. Final publishedhead5f5eecc. #32→#24 integration now starts under exactrequiredCI/head-pinned merges; tracker23 staysdraft/no-merge, no admin/protectionchanges. This local metadata record afterpublication is not pushed onto integratingchild9; transplant its commit onto finaltracker afterchildrencomplete. Native review unavailability remains disclosed; independent functional/source proof unchanged.
+
+- **L9 — Nine child integrations confirmed**: job26 exit0, each required GitHub Actions context SUCCESS on exact current head, conventional head-pinned merge and post-readback. Tracker23 draft at `aefa0bc0e5c704712ed48d15de42988624c25e94`; main remainsc24e719. Fetch/FF plus metadata-only publication-record transplant prepared the tracker; all runtime files match verifiedf24e151 when excluding only the three task records. No code/SQL/Godot resource change, no deployment/protection bypass. Push new tracker evidence, wait its exact CI, then ready/merge23 and verify main CI before issue-criteria closure.
+
+| Child | Exact tested head | Required CI run | Merge commit |
+| --- | --- | --- | --- |
+| #32 | `5f5eecc96004` | [40774473549](https://github.com/sdsoporte/GF-nft/actions/runs/40774473549) | `5eb346106f18` |
+| #31 | `5eb346106f18` | [40774983749](https://github.com/sdsoporte/GF-nft/actions/runs/40774983749) | `1e1828082c45` |
+| #30 | `1e1828082c45` | [40775046865](https://github.com/sdsoporte/GF-nft/actions/runs/40775046865) | `75d0f3c3c598` |
+| #29 | `75d0f3c3c598` | [40775111708](https://github.com/sdsoporte/GF-nft/actions/runs/40775111708) | `b4332000e66a` |
+| #28 | `b4332000e66a` | [40775170714](https://github.com/sdsoporte/GF-nft/actions/runs/40775170714) | `929a35029203` |
+| #27 | `929a35029203` | [40775234002](https://github.com/sdsoporte/GF-nft/actions/runs/40775234002) | `8d45c6d58f69` |
+| #26 | `8d45c6d58f69` | [40775297440](https://github.com/sdsoporte/GF-nft/actions/runs/40775297440) | `ab27453f1c96` |
+| #25 | `ab27453f1c96` | [40775359136](https://github.com/sdsoporte/GF-nft/actions/runs/40775359136) | `5a6f2ba5c95c` |
+| #24 | `5a6f2ba5c95c` | [40775420746](https://github.com/sdsoporte/GF-nft/actions/runs/40775420746) | `aefa0bc0e5c7` |
