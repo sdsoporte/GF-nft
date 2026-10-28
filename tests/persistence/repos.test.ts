@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ITEM_IDS } from '../../src/persistence/rows.ts';
+import { hashMcpToken } from '../../src/mcp/credentials.ts';
 import {
   COMPANY_FACTORY,
   COMPANY_METAL,
@@ -23,6 +24,7 @@ import {
   sampleGrant,
   sampleLine,
   sampleLot,
+  sampleStoredGrant,
   seedCompanies,
   seedLotPair,
   withRepositories,
@@ -345,9 +347,24 @@ test('mcp grants round-trip scopes, allowlist and quotas, and revoke in place', 
 
     const grant = sampleGrant();
     repos.grants.save(grant);
-    assert.deepEqual(repos.grants.load('grant_1'), grant);
-    assert.deepEqual(repos.grants.loadByToken('gf_mcp_token_1'), grant);
+    const stored = repos.grants.load('grant_1');
+    assert.deepEqual(stored, sampleStoredGrant());
+    assert.equal(stored?.tokenHash, hashMcpToken('gf_mcp_token_1'));
+    assert.equal(JSON.stringify(stored).includes(grant.token), false);
+    assert.deepEqual(
+      repos.grants.loadByTokenHash(hashMcpToken('gf_mcp_token_1')),
+      sampleStoredGrant(),
+    );
+    assert.deepEqual(repos.grants.loadByTokenHash(hashMcpToken('gf_mcp_token_2')), null);
     assert.deepEqual(repos.grants.load('grant_missing'), null);
+
+    // The hash column refuses anything that is not a sha256 digest.
+    assert.throws(
+      () =>
+        repos.grants.saveStored({ ...sampleStoredGrant(), grantId: 'grant_plain', tokenHash: 'gf_mcp_token_9' }),
+      /sha256 hex digest/,
+    );
+    assert.deepEqual(repos.grants.load('grant_plain'), null);
 
     repos.grants.save(
       sampleGrant({
@@ -382,6 +399,10 @@ test('mcp grants round-trip scopes, allowlist and quotas, and revoke in place', 
       repos.grants.list().map((row) => row.grantId),
       ['grant_1', 'grant_2'],
     );
+    // No read API can hand back the plaintext secret that seeded the row.
+    for (const token of ['gf_mcp_token_1', 'gf_mcp_token_2']) {
+      assert.equal(JSON.stringify(repos.grants.list()).includes(token), false);
+    }
 
     repos.grants.revoke('grant_2');
     assert.equal(repos.grants.load('grant_2')?.revoked, true);

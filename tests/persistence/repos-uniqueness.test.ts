@@ -119,12 +119,13 @@ test('the inventories unique key rejects a second row for the same company and i
   });
 });
 
-test('the mcp_grants token unique key rejects a duplicated token', () => {
+test('the mcp_grants token_hash unique key rejects a duplicated secret digest', () => {
   withRepositories((repos, database) => {
     seedCompanies(repos);
     repos.grants.save(sampleGrant());
     const before = snapshotState(database);
 
+    // Same raw secret under a different grant id: the stored digest collides.
     assert.throws(() => repos.grants.save(sampleGrant({ grantId: 'grant_2' })), /UNIQUE/);
 
     assert.deepEqual(snapshotState(database), before);

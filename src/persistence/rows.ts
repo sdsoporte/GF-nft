@@ -30,7 +30,8 @@ import type {
   LotStatus,
   TradeEscrowRecord,
 } from '../domain/web3DomainModel.ts';
-import type { McpAuditLogEntry, McpGrant, McpPhaseMode, McpScope } from '../mcp/types.ts';
+import type { McpAuditLogEntry, McpPhaseMode, McpScope } from '../mcp/types.ts';
+import type { StoredMcpGrant } from '../mcp/credentials.ts';
 import type {
   CompanyRecord,
   InventoryReservationRecord,
@@ -199,7 +200,7 @@ export interface ReservationRow {
 
 export interface GrantRow {
   readonly grant_id: string;
-  readonly token: string;
+  readonly token_hash: string;
   readonly player_id: string;
   readonly company_id: string;
   readonly match_id: string;
@@ -352,10 +353,10 @@ export function toInventoryReservation(row: ReservationRow): InventoryReservatio
   };
 }
 
-export function toMcpGrant(row: GrantRow): McpGrant {
+export function toStoredMcpGrant(row: GrantRow): StoredMcpGrant {
   return {
     grantId: row.grant_id,
-    token: row.token,
+    tokenHash: row.token_hash,
     playerId: row.player_id,
     companyId: row.company_id,
     matchId: row.match_id,

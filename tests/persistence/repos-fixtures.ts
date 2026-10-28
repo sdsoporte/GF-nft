@@ -23,6 +23,7 @@ import type {
 } from '../../src/domain/types.ts';
 import type { CommodityLot, TradeEscrowRecord } from '../../src/domain/web3DomainModel.ts';
 import type { McpAuditLogEntry, McpGrant } from '../../src/mcp/types.ts';
+import { hashMcpToken, type McpGrantPolicy, type StoredMcpGrant } from '../../src/mcp/credentials.ts';
 import { closeDatabase, openDatabase } from '../../src/persistence/database.ts';
 import { migrate } from '../../src/persistence/migrations.ts';
 import { createRepositories, type Repositories } from '../../src/persistence/repos/index.ts';
@@ -274,6 +275,28 @@ export function sampleGrant(overrides: Partial<McpGrant> = {}): McpGrant {
     revoked: false,
     ...overrides,
   };
+}
+
+/** The hash-only record `sampleGrant()` becomes once the repository stores it. */
+export function sampleStoredGrant(
+  overrides: Partial<McpGrantPolicy> & { readonly tokenHash?: string } = {},
+): StoredMcpGrant {
+  const { tokenHash, ...policyOverrides } = overrides;
+  const policy: McpGrantPolicy = {
+    grantId: 'grant_1',
+    playerId: 'player_1',
+    companyId: COMPANY_METAL,
+    matchId: 'match_test',
+    phaseMode: 'PHASE_1B_READ_WRITE',
+    scopes: ['factory:read', 'production:write'],
+    resourceAllowlist: ['line_1', 'line_2'],
+    quotas: { maxReadPerMinute: 60, maxWritePerMinute: 12, maxWritePerMatch: 500 },
+    createdAtUtc: '2026-01-01T00:00:00.000Z',
+    expiresAtUtc: '2026-01-02T00:00:00.000Z',
+    revoked: false,
+    ...policyOverrides,
+  };
+  return { ...policy, tokenHash: tokenHash ?? hashMcpToken('gf_mcp_token_1') };
 }
 
 export function sampleAudit(overrides: Partial<McpAuditLogEntry> = {}): McpAuditLogEntry {
