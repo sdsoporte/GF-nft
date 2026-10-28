@@ -40,7 +40,7 @@ import {
 } from './domain/types.ts';
 import { McpGateway } from './mcp/McpGateway.ts';
 import { McpGrant, McpResponse, McpToolName } from './mcp/types.ts';
-import { SqliteLocalSettlementProvider } from './persistence/SqliteLocalSettlementProvider.ts';
+import { InMemorySettlementProvider } from './persistence/InMemorySettlementProvider.ts';
 import {
   CommodityLot,
   TradeEscrowRecord,
@@ -51,7 +51,7 @@ export default function App() {
   const [, startTransition] = useTransition();
   const engineRef = useRef<SimulatorEngine | null>(null);
   const gatewayRef = useRef<McpGateway | null>(null);
-  const settlementRef = useRef<SqliteLocalSettlementProvider | null>(null);
+  const settlementRef = useRef<InMemorySettlementProvider | null>(null);
 
   // Initialize engine, gateway, and settlement provider once
   if (!engineRef.current) {
@@ -116,7 +116,7 @@ export default function App() {
 
     gatewayRef.current = gw;
 
-    const sp = new SqliteLocalSettlementProvider(eng);
+    const sp = new InMemorySettlementProvider(eng);
     settlementRef.current = sp;
   }
 

@@ -1,6 +1,8 @@
 # Keep the build context small and free of secrets. The image copies only the
-# backend entrypoint plus src/domain and src/engine, so anything listed here is
-# either unused build context or must never reach an image layer.
+# backend entrypoint plus src/domain, src/engine and src/persistence, so
+# anything listed here is either unused build context or must never reach an
+# image layer. The in-memory settlement demo stays out (browser-only); its
+# domain interfaces ship because the authentic SQLite provider needs them.
 .git
 .gitignore
 node_modules
@@ -16,8 +18,7 @@ index.html
 src/App.tsx
 src/main.tsx
 src/mcp
-src/persistence
-src/domain/web3DomainModel.ts
+src/persistence/InMemorySettlementProvider.ts
 .env
 .env.*
 *.log

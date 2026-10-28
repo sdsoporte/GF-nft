@@ -27,6 +27,7 @@ import {
   PROTOCOL_VERSION,
   type ProductionRequestInput,
 } from './match.ts';
+import type { MatchStore } from '../../src/persistence/matchStore.ts';
 
 /** Hard limit for request bodies. */
 export const MAX_REQUEST_BODY_BYTES = 8 * 1024;
@@ -41,6 +42,12 @@ export interface FactoryServerOptions {
   readonly match?: FactoryMatch;
   readonly seed?: number;
   readonly matchId?: string;
+  /**
+   * Durable match state (S3/S6). Omitted leaves the server purely in memory,
+   * exactly as before persistence existed. The caller owns the database handle
+   * and closes it after `close()`, so the transport layer never opens files.
+   */
+  readonly store?: MatchStore;
 }
 
 export interface FactoryServerAddress {
@@ -330,6 +337,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       seed: options.seed,
       matchId: options.matchId,
       tickIntervalMs,
+      store: options.store,
     });
   const clock = options.clock ?? new IntervalTickClock(tickIntervalMs);
   const context: HandlerContext = { token: options.token, match };
