@@ -16,7 +16,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import { getRecipe, getRecipeProfile } from '../../src/domain/recipeCatalog.ts';
+import { getRecipe, getRecipeProfile } from './domain/recipeCatalog.ts';
 import type {
   CommandExecutionResult,
   CompanyState,
@@ -24,23 +24,23 @@ import type {
   GameCommand,
   IndustrialClass,
   RecipeId,
-} from '../../src/domain/types.ts';
+} from './domain/types.ts';
 import {
   deriveGlobalProjectState,
   SimulatorEngine,
   type EngineHydration,
-} from '../../src/engine/SimulatorEngine.ts';
+} from './engine/SimulatorEngine.ts';
 import {
   CommandNotAccepted,
   type AdoptedMatch,
   type MatchStore,
-} from '../../src/persistence/matchStore.ts';
+} from './persistence/matchStore.ts';
 import type {
   CommandResultRecord,
   MatchMetadataWrite,
   QueuedCommandRecord,
-} from '../../src/persistence/repos/index.ts';
-import { runAtomic } from '../../src/persistence/transaction.ts';
+} from './persistence/repos/index.ts';
+import { runAtomic } from './persistence/transaction.ts';
 
 export const PROTOCOL_VERSION = 1;
 export const SERVER_COMPANY_ID = 'comp_metal_01';

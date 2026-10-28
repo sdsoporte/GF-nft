@@ -14,7 +14,7 @@ services:
   factory-backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile
     image: gf-factory-backend:dev
     environment:
       # Compose refuses to start without a token; 32+ printable characters.

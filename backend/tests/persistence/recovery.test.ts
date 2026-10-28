@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DEFAULT_MATCH_SEED, FactoryMatch } from '../../backend/src/match.ts';
+import { DEFAULT_MATCH_SEED, FactoryMatch } from '../../src/match.ts';
 import { closeDatabase } from '../../src/persistence/database.ts';
 import { openPersistedStore, MATCH_ID, withTempDirectory } from './queue-fixtures.ts';
 import { MID_GAME_TICK, driveMidGame, type MidGameScript } from './recovery-fixtures.ts';

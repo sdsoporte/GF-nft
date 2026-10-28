@@ -27,8 +27,8 @@ import {
   PROTOCOL_VERSION,
   type ProductionRequestInput,
 } from './match.ts';
-import type { MatchStore } from '../../src/persistence/matchStore.ts';
-import type { McpGateway } from '../../src/mcp/McpGateway.ts';
+import type { MatchStore } from './persistence/matchStore.ts';
+import type { McpGateway } from './mcp/McpGateway.ts';
 import { createMcpRuntime, type McpRuntime } from './mcpRuntime.ts';
 import { GrantIssueError, type GrantIssueInput } from './grantService.ts';
 import { readFactoryConfig } from './config.ts';

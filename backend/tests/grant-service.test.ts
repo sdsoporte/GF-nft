@@ -30,10 +30,10 @@ import {
   type GrantIssueInput,
   type GrantServiceOptions,
 } from '../src/grantService.ts';
-import type { McpGrantPolicy, StoredMcpGrant } from '../../src/mcp/credentials.ts';
-import { closeDatabase, openDatabase } from '../../src/persistence/database.ts';
-import { migrate, MIGRATIONS } from '../../src/persistence/migrations.ts';
-import { createRepositories, type Repositories } from '../../src/persistence/repos/index.ts';
+import type { McpGrantPolicy, StoredMcpGrant } from '../src/mcp/credentials.ts';
+import { closeDatabase, openDatabase } from '../src/persistence/database.ts';
+import { migrate, MIGRATIONS } from '../src/persistence/migrations.ts';
+import { createRepositories, type Repositories } from '../src/persistence/repos/index.ts';
 
 /** The sqlite handle type the persistence layer exposes (no ambient import here). */
 type Database = Repositories['database'];

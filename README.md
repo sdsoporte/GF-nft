@@ -1,81 +1,74 @@
-# GigaForge — authoritative factory slice
+# GigaForge
 
-The GigaForge simulation now has an independently runnable backend in
-[`backend/`](backend/README.md): one Bun process owns the match clock, the
-command queue and the inventory. The Godot game in [`gf/`](gf/README.md) is its
-client. The existing React prototype keeps its own local simulation and is not
-connected to this backend. Start the backend in Docker or locally, then
-connect Godot.
+One product repository: an authoritative Bun backend and a Godot client. The
+initial React/Vite demo is a **historical source archive**, not a supported
+application or part of the active build.
 
-The wire contract is frozen in [`docs/factory-api.md`](docs/factory-api.md).
+## Components
 
-> Scope: this is a single-factory, in-memory development slice (one metallurgy
-> company, one `R1` batch command). It does not complete issues #6, #7 or #8 and
-> it is not a public production authentication story.
-
-## Quick path
-
-### With Docker (recommended)
-
-```bash
-export GF_API_TOKEN="$(openssl rand -hex 24)"
-docker compose up --build --detach --wait
-curl -s http://127.0.0.1:8787/health        # {"status":"ok","protocolVersion":1}
-```
-
-Compose publishes the port on `127.0.0.1` only and refuses to start without
-`GF_API_TOKEN`.
-
-### Without Docker
-
-```bash
-export GF_API_TOKEN="$(openssl rand -hex 24)"
-bun run server                              # defaults: 127.0.0.1:8787
-```
-
-`bun backend/main.ts --help` prints every command, environment variable and
-route.
-
-### Clients
-
-- Godot: [`gf/README.md`](gf/README.md).
-- React prototype: `bun run dev` (unchanged; it still runs its own local
-  simulation and is not wired to the backend in this slice).
-
-## What runs where
-
-| Area | Path | Role |
+| Area | Location | Responsibility |
 | --- | --- | --- |
-| Authoritative backend | `backend/` | Owns clock, commands and state; HTTP + CLI entrypoint and tests. |
-| Persistence | `src/persistence/` | Versioned migrations, transactional repositories and the SQLite settlement provider; enabled by `GF_SQLITE_PATH` (compose: named volume). |
-| Frozen protocol | `docs/factory-api.md` | Health, authenticated own-company state, one `R1` batch request, command status. |
-| Godot client | `gf/` | Renders server snapshots and sends production requests. |
-| React prototype | `src/` | Pre-existing local prototype; unchanged by this slice. |
+| Godot client | [`gf/`](gf/README.md) | Render server snapshots and submit production commands. |
+| Backend | [`backend/`](backend/README.md) | HTTP/CLI, simulation, domain, MCP policies and SQLite persistence. |
+| Backend tests | `backend/tests/` | Engine, persistence, authorization, HTTP and regression suites. |
+| Repository integration | `tests/integration/` | Validate active package/build boundaries. |
+| Wire contract | [`docs/factory-api.md`](docs/factory-api.md) | Frozen version-1 client/server protocol. |
+| Archived web demo | [`docs/archive/web-demo/`](docs/archive/web-demo/README.md) | Historical UI/assets/manifests; never an active workspace or deployment. |
+| Work evidence | [`odd/tasks/`](odd/tasks/) | Specifications, migration tasks and verification history. |
 
-## Verification
+The staged repository migration is tracked in
+[`odd/tasks/product-layout.md`](odd/tasks/product-layout.md). Godot and contract
+paths above are updated in the next coherent migration unit.
+
+## Local backend
+
+Run these commands **from the repository root**:
 
 ```bash
-bun test              # full TypeScript suite (HTTP boundary, CLI)
-bun run lint          # tsc --noEmit
-bun run build         # Vite build of the prototype
-GF_API_TOKEN=... docker compose config --quiet
+bun install --frozen-lockfile
+bun run test
+bun run lint
+bun run build
+export GF_API_TOKEN="$(openssl rand -hex 24)"
+bun run server
 ```
 
-CI runs the same three commands on every pull request, headless (no UI), from
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml). A red run marks the PR;
-making the `test, lint, build (headless)` check merge-blocking is a
-branch-protection setting on GitHub (repository admin).
+`server` retains `bun backend/main.ts` and the repository-root working directory;
+relative `GF_SQLITE_PATH` and environment loading keep their original meaning.
+`bun backend/main.ts --help` lists the supported options, routes and environment
+variables. The server defaults to `127.0.0.1:8787`.
 
-## Limits
+- `test` explicitly selects active backend and repository integration suites.
+- `lint` typechecks active TypeScript only, without React/Vite client types.
+- `build` produces the backend artifact under `backend/dist/`, not a web bundle.
+- `test:backend` runs the backend suites alone.
 
-- State is in memory unless `GF_SQLITE_PATH` is set; `compose.yaml` enables it
-  on a named volume, so container restarts re-adopt the same match.
-- One server-selected factory and one recipe; contracts, wallets, NPC
-  automation and the external game MCP remain backlog.
-- A shared bearer token on a loopback port is a development convenience, not
-  internet-ready authentication.
+Godot instructions and isolated headless checks are in its component README.
+There is no active website and no `site/` workspace. To reproduce the retired
+web prototype, use the historical commit documented in its archive README;
+do not wire archived sources back into the current backend.
 
-## Next step
+## Persistence and credentials
 
-Read [`backend/README.md`](backend/README.md) for the behaviour the tests pin, or
-[`docs/factory-api.md`](docs/factory-api.md) before changing the protocol.
+State stays in memory unless `GF_SQLITE_PATH` is configured. Compose uses a
+named SQLite volume and publishes HTTP on loopback only. Before starting an
+existing volume on this branch, read the
+[credential migration notes](docs/mcp-grant-storage.md): migration 5 retires
+legacy grants and requires reissuance. Repository restructuring itself does
+not migrate a live database or deploy a service.
+
+Optional `GF_OWNER_ID` enables the configured single-owner administration
+mode. The root bearer establishes an expiring owner session; only owner
+sessions administer grants. Secrets are issued once; stored grants are hash-only.
+There is no public signup, external identity provider or external MCP transport
+in this scope. Never use historical demo credentials for a real match.
+
+## Containers and CI
+
+Compose builds `backend/Dockerfile` with repository-root context. Runtime
+images contain backend source and its runtime dependency, not the archive,
+Godot project, tests, dev tooling or local env files.
+
+CI runs the scoped test, typecheck and backend build commands using frozen
+installation. The required check name remains **`test, lint, build (headless)`**;
+no branch-protection changes or publishing are part of this migration.

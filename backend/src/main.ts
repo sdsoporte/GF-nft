@@ -22,9 +22,9 @@ import {
 import type { FactoryConfig } from './config.ts';
 import { createFactoryServer } from './http.ts';
 import type { FactoryServerAddress } from './http.ts';
-import { closeDatabase, openDatabase } from '../../src/persistence/database.ts';
-import { createMatchStore, type MatchStore } from '../../src/persistence/matchStore.ts';
-import { migrate } from '../../src/persistence/migrations.ts';
+import { closeDatabase, openDatabase } from './persistence/database.ts';
+import { createMatchStore, type MatchStore } from './persistence/matchStore.ts';
+import { migrate } from './persistence/migrations.ts';
 
 export const USAGE = `GF authoritative factory backend - development slice
 

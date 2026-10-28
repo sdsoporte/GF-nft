@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import test from 'node:test';
 
-import { FactoryMatch, MAX_ACKNOWLEDGED_REQUESTS } from '../../backend/src/match.ts';
+import { FactoryMatch, MAX_ACKNOWLEDGED_REQUESTS } from '../../src/match.ts';
 import { closeDatabase } from '../../src/persistence/database.ts';
 import type { MatchStore } from '../../src/persistence/matchStore.ts';
 import {

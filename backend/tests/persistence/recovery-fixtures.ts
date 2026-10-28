@@ -19,7 +19,7 @@ import {
   FactoryMatch,
   MAX_ACKNOWLEDGED_REQUESTS,
   SERVER_COMPANY_ID,
-} from '../../backend/src/match.ts';
+} from '../../src/match.ts';
 import type { EnqueueCommandInput, GameCommand } from '../../src/domain/types.ts';
 import type { MatchStore } from '../../src/persistence/matchStore.ts';
 import { productionPayload } from './queue-fixtures.ts';

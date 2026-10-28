@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { FactoryMatch } from '../src/match.ts';
-import { MatchStore, createMatchStore, type CommitCommandInput } from '../../src/persistence/matchStore.ts';
-import { openDatabase, closeDatabase } from '../../src/persistence/database.ts';
-import { migrate } from '../../src/persistence/migrations.ts';
+import { MatchStore, createMatchStore, type CommitCommandInput } from '../src/persistence/matchStore.ts';
+import { openDatabase, closeDatabase } from '../src/persistence/database.ts';
+import { migrate } from '../src/persistence/migrations.ts';
 
 // Public store injection models a transaction failure after its engine apply.
 class FailingAdmissionStore extends MatchStore {

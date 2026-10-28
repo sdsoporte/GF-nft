@@ -12,11 +12,11 @@ import { readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { FactoryMatch, DEFAULT_TICK_INTERVAL_MS } from '../../backend/src/match.ts';
-import { SQLITE_PATH_ENV_VAR } from '../../backend/src/config.ts';
-import { createFactoryServer } from '../../backend/src/http.ts';
-import { formatUsage, openMatchPersistence, runCli } from '../../backend/src/main.ts';
-import type { StartedServer } from '../../backend/src/main.ts';
+import { FactoryMatch, DEFAULT_TICK_INTERVAL_MS } from '../../src/match.ts';
+import { SQLITE_PATH_ENV_VAR } from '../../src/config.ts';
+import { createFactoryServer } from '../../src/http.ts';
+import { formatUsage, openMatchPersistence, runCli } from '../../src/main.ts';
+import type { StartedServer } from '../../src/main.ts';
 import { getCurrentVersion, MIGRATIONS } from '../../src/persistence/migrations.ts';
 import { MATCH_ID, productionPayload, withTempDirectory } from './queue-fixtures.ts';
 

@@ -44,7 +44,7 @@
  * the simulation state, and this file is where that choice is recorded.
  */
 
-import type { FactoryMatch } from '../../backend/src/match.ts';
+import type { FactoryMatch } from '../../src/match.ts';
 import type { CompanyState } from '../../src/domain/types.ts';
 import type { MatchStore } from '../../src/persistence/matchStore.ts';
 

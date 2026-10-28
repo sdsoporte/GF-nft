@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FactoryMatch } from '../../backend/src/match.ts';
+import { FactoryMatch } from '../../src/match.ts';
 import { McpGateway } from '../../src/mcp/McpGateway.ts';
 import { openDatabase, closeDatabase } from '../../src/persistence/database.ts';
 import { createMatchStore } from '../../src/persistence/matchStore.ts';

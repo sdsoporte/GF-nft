@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from './helpers.ts';
 import { startOwnerApp, ownerSession, issueGrant } from './owner-fixtures.ts';
-import { ALL_SCOPES, LINE_A1, LINE_A2, TENANT_A, expectError, expectSuccess, targetParams, makeGrant } from '../../tests/mcp/grant-helper.ts';
+import { ALL_SCOPES, LINE_A1, LINE_A2, TENANT_A, expectError, expectSuccess, targetParams, makeGrant } from './mcp/grant-helper.ts';
 
 const tools = ['get_factory_overview', 'get_inventory', 'get_production_lines', 'get_contracts', 'get_market_quotes', 'get_action_history', 'set_production_target', 'set_line_priority', 'pause_production_line', 'resume_production_line', 'schedule_internal_transport', 'draft_supply_offer', 'cancel_own_pending_offer'];
 const writeGrant = { phaseMode: 'PHASE_1B_READ_WRITE', scopes: ALL_SCOPES };

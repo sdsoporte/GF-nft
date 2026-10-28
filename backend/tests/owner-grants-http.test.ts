@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { request, withTestServer, TEST_TOKEN } from './helpers.ts';
 import { createFactoryServer } from '../src/http.ts';
 import { ManualTickClock } from '../src/clock.ts';
-import { expectSuccess } from '../../tests/mcp/grant-helper.ts';
+import { expectSuccess } from './mcp/grant-helper.ts';
 import { startOwnerApp, ownerSession, issueGrant, READ_GRANT } from './owner-fixtures.ts';
 
 test('configured owner administration also works in the explicitly non-persistent backend mode', async () => {

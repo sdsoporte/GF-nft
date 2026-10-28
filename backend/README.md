@@ -1,8 +1,10 @@
 # Authoritative factory backend (development slice)
 
 One Bun process owns the match: the clock, the command queue and the inventory.
-Godot reads this authoritative state and sends requests. The legacy React
-prototype is an isolated local playground, not a real credential issuer. The wire contract is frozen in
+Godot reads this authoritative state and sends requests. The retired React
+prototype is archived under [`../docs/archive/web-demo/`](../docs/archive/web-demo/README.md)
+as historical source only — not a runnable app and never a real credential
+issuer. The wire contract is frozen in
 [`../docs/factory-api.md`](../docs/factory-api.md).
 
 This is a first operable slice, not a finished service: one metallurgy factory,
@@ -38,9 +40,9 @@ curl -s -H "Authorization: Bearer $GF_API_TOKEN" \
 | --- | --- |
 | `bun run server` | Start the HTTP service with the environment below. |
 | `bun backend/main.ts --help` | Print usage, environment and routes; exits without serving. |
-| `bun run test:backend` (or `bun test backend`) | Backend HTTP + CLI tests. |
-| `bun test` | Full TypeScript suite. |
-| `bun run lint` | `tsc --noEmit` over the repository. |
+| `bun run test:backend` (or `bun test backend/tests`) | Backend HTTP + CLI tests. |
+| `bun test` | Scoped suite: `backend/tests` plus `tests/integration`. |
+| `bun run lint` | `tsc --noEmit` over the backend and the integration tests. |
 | `docker compose up --build` | Build and run the container, publishing loopback only. |
 
 ## Environment
@@ -104,7 +106,7 @@ not part of the frozen contract.
 
 ## Tests
 
-`bun test backend` runs Node's `node:test`/`node:assert` suites through Bun. Every
+`bun test backend/tests` runs Node's `node:test`/`node:assert` suites through Bun. Every
 test builds its own match and injects a `ManualTickClock`, so ticks advance only
 when the test says so and no test observes another test's state. Each test listens
 on an ephemeral loopback port and asserts exact public response bodies, unchanged
@@ -122,9 +124,10 @@ curl -s http://127.0.0.1:8787/health
 ```
 
 - Image: official pinned `oven/bun:1.4.2`, running as the non-root `bun` user.
-- Contents: `backend/`, `src/domain/`, `src/engine/`, `src/persistence/`,
-  `package.json`. No UI, no Godot project, no `.env`, no `node_modules`, no
-  lockfile and no dependency install: the service only needs Bun built-ins.
+- Contents: `backend/main.ts`, `backend/package.json` and `backend/src/`
+  (`domain`, `engine`, `mcp`, `persistence`) plus the locked Zod runtime copied
+  from a dependency stage. No UI, no archived demo, no tests, no Godot project,
+  no `.env` and no dev dependencies.
 - Binds `0.0.0.0:8787` inside the container; Compose publishes
   `127.0.0.1:${GF_PUBLISHED_PORT:-8787}`.
 - Compose mounts the named volume `factory-data` at `/data` and sets
@@ -150,8 +153,9 @@ the same acknowledgement instead of duplicating a movement.
   lot ids and EIP-712 nonces live in `settlement_counters` / `account_nonces`;
   the settlement circuit-breaker latch is process-local by design — its
   evidence rows re-trip it after a restart.
-- `InMemorySettlementProvider` is the frozen browser-demo fork used by the React
-  prototype. It is not persistence and must never be described as such.
+- `InMemorySettlementProvider` (browser-only fork) is not persistence and is
+  archived with the demo, never shipped to the server; it must never be
+  described as persistence.
 - A wired match hydrates the engine from rows (`SimulatorEngine.hydrate`);
   there is no second ledger.
 - One process owns a database file: two servers on the same file would collide

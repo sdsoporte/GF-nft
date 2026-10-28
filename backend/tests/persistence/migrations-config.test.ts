@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { readFactoryConfig } from '../../backend/src/config.ts';
+import { readFactoryConfig } from '../../src/config.ts';
 
 const VALID_TOKEN = 'a'.repeat(40);
 

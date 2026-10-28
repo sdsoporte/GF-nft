@@ -30,8 +30,8 @@ import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 /** Repository root, resolved from this file so the cwd never matters. */
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const README_FILE = 'tests/regressions/README.md';
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const README_FILE = 'backend/tests/regressions/README.md';
 
 type CoverageKind = 'green' | 'pending';
 
@@ -71,14 +71,14 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #1
   {
     issue: 1,
-    file: 'tests/engine-material-shortage.test.ts',
+    file: 'backend/tests/engine-material-shortage.test.ts',
     titleFragment: 'resuming after a material shortage never credits another batch',
     kind: 'green',
     note: 'issue #1 closed: RESUME_PRODUCTION_LINE no longer replays a batch whose inputs were never consumed',
   },
   {
     issue: 1,
-    file: 'tests/engine-material-shortage.test.ts',
+    file: 'backend/tests/engine-material-shortage.test.ts',
     titleFragment: 'completing the only affordable batch pauses the line with exactly one credited batch',
     kind: 'green',
     note: 'issue #1 closed: the last affordable batch is credited exactly once and the line pauses',
@@ -87,35 +87,35 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #2
   {
     issue: 2,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'get_factory_overview rejects a company_id that is not the grant company',
     kind: 'green',
     note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'get_inventory rejects a company_id that is not the grant company',
     kind: 'green',
     note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'get_production_lines rejects a company_id that is not the grant company',
     kind: 'green',
     note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'get_contracts rejects a company_id that is not the grant company',
     kind: 'green',
     note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
   },
   {
     issue: 2,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'get_action_history is scoped to the grant company',
     kind: 'green',
     note: 'issue #2 locally fixed: private reads and durable history are bound to the authorized tenant',
@@ -124,7 +124,7 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #3
   {
     issue: 3,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'drafts are not published to the market before an explicit publish step',
     kind: 'pending',
     note: 'issue #3 open: draft_supply_offer creates a PENDING market contract immediately, with no publish step',
@@ -133,21 +133,21 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #4
   {
     issue: 4,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'an offer targeted at another buyer cannot be accepted by a third company',
     kind: 'pending',
     note: 'issue #4 open: target_buyer_id is not validated on acceptance through the MCP path',
   },
   {
     issue: 4,
-    file: 'tests/engine/contracts-lifecycle.test.ts',
+    file: 'backend/tests/engine/contracts-lifecycle.test.ts',
     titleFragment: 'a targeted offer cannot be accepted by a non-targeted company',
     kind: 'pending',
     note: 'issue #4 open: ACCEPT_SUPPLY_OFFER overwrites buyerCompanyId without validating targetBuyerId',
   },
   {
     issue: 4,
-    file: 'tests/engine/contracts-lifecycle.test.ts',
+    file: 'backend/tests/engine/contracts-lifecycle.test.ts',
     titleFragment: 'a seller cannot accept its own offer',
     kind: 'pending',
     note: 'issue #4 open: self-dealing is not policed, the seller can accept its own offer',
@@ -156,21 +156,21 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #5
   {
     issue: 5,
-    file: 'tests/engine/contracts-expiration.test.ts',
+    file: 'backend/tests/engine/contracts-expiration.test.ts',
     titleFragment: 'a partial default pays the seller for the units it already delivered',
     kind: 'pending',
     note: 'issue #5 open: default settlement never pays the seller for the units already delivered',
   },
   {
     issue: 5,
-    file: 'tests/engine/contracts-expiration.test.ts',
+    file: 'backend/tests/engine/contracts-expiration.test.ts',
     titleFragment: 'a partial default conserves total credits between both companies',
     kind: 'pending',
     note: 'issue #5 open: credit conservation breaks on partial delivery plus settlement',
   },
   {
     issue: 5,
-    file: 'tests/property/credits.test.ts',
+    file: 'backend/tests/property/credits.test.ts',
     titleFragment: 'partial-delivery default pays the seller for delivered units and conserves total credits',
     kind: 'pending',
     note: 'issue #5 open: `test.todo` for the seeded credit ledger, flipped to an asserted test with the fix',
@@ -179,21 +179,21 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #6
   {
     issue: 6,
-    file: 'backend/test/commands.test.ts',
+    file: 'backend/tests/commands.test.ts',
     titleFragment: 'one R1 batch consumes raw ore and produces ingots on server ticks',
     kind: 'green',
     note: 'issue #6 closed: the batch runs on the backend-owned clock, not in React',
   },
   {
     issue: 6,
-    file: 'backend/test/http-boundary.test.ts',
+    file: 'backend/tests/http-boundary.test.ts',
     titleFragment: 'the server-owned clock advances the match independently of requests',
     kind: 'green',
     note: 'issue #6 closed: SimulatorEngine ticks in the backend process, not in the client',
   },
   {
     issue: 6,
-    file: 'backend/test/http-boundary.test.ts',
+    file: 'backend/tests/http-boundary.test.ts',
     titleFragment: 'GET /v1/state exposes only the server-selected company',
     kind: 'green',
     note: 'issue #6 closed: the backend selects the company and projects the state; clients cannot',
@@ -202,7 +202,7 @@ const MATRIX: readonly MatrixEntry[] = [
   // ------------------------------------------------------------------ issue #7
   {
     issue: 7,
-    file: 'tests/mcp/isolation.test.ts',
+    file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 're-registering a grant invalidates its previous token',
     kind: 'pending',
     note: 'issue #7 open: fixed-token issuance, registerGrant keeps the stale token mapping alive',
@@ -271,7 +271,7 @@ function declarationsOf(file: string): readonly Declaration[] {
   return declarations;
 }
 
-/** `#4 — tests/engine/contracts-lifecycle.test.ts :: a seller cannot accept its own offer` */
+/** `#4 — backend/tests/engine/contracts-lifecycle.test.ts :: a seller cannot accept its own offer` */
 function label(entry: MatrixEntry): string {
   return `#${entry.issue} — ${entry.file} :: ${entry.titleFragment}`;
 }

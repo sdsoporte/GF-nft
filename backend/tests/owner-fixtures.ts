@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { createFactoryServer } from '../src/http.ts';
 import { ManualTickClock } from '../src/clock.ts';
-import { openDatabase, closeDatabase } from '../../src/persistence/database.ts';
-import { migrate } from '../../src/persistence/migrations.ts';
-import { createMatchStore } from '../../src/persistence/matchStore.ts';
+import { openDatabase, closeDatabase } from '../src/persistence/database.ts';
+import { migrate } from '../src/persistence/migrations.ts';
+import { createMatchStore } from '../src/persistence/matchStore.ts';
 import { request, TEST_TOKEN, type TestApp } from './helpers.ts';
 
 export const OWNER_ID = 'owner_local_test';
