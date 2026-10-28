@@ -6,6 +6,9 @@
  */
 
 export const TOKEN_ENV_VAR = 'GF_API_TOKEN';
+/** Empty/unset leaves owner administration disabled. */
+export const OWNER_ID_ENV_VAR = 'GF_OWNER_ID';
+export const OWNER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export const HOST_ENV_VAR = 'GF_HOST';
 export const PORT_ENV_VAR = 'GF_PORT';
 /** SQLite database file. Unset disables persistence (in-memory behaviour). */
@@ -28,6 +31,8 @@ export interface FactoryConfig {
    * stay byte-identical (A3 backward compatibility).
    */
   readonly sqlitePath?: string;
+  /** Explicit single-owner identity; absent preserves the legacy server surface. */
+  readonly ownerId?: string;
 }
 
 export type FactoryConfigResult =
@@ -104,12 +109,21 @@ export function readFactoryConfig(env: Record<string, string | undefined>): Fact
   const host = readHost(env, errors);
   const port = readPort(env, errors);
   const sqlitePath = readSqlitePath(env, errors);
+  const rawOwnerId = env[OWNER_ID_ENV_VAR];
+  const ownerId = rawOwnerId === undefined || rawOwnerId === '' ? undefined : rawOwnerId;
+  if (ownerId !== undefined && !OWNER_ID_PATTERN.test(ownerId)) {
+    errors.push(`${OWNER_ID_ENV_VAR} must be 1-64 ASCII letters, digits, underscores or dashes.`);
+  }
 
   if (errors.length > 0) {
     return { ok: false, errors };
   }
   return {
     ok: true,
-    config: sqlitePath === undefined ? { host, port, token } : { host, port, token, sqlitePath },
+    config: {
+      host, port, token,
+      ...(sqlitePath === undefined ? {} : { sqlitePath }),
+      ...(ownerId === undefined ? {} : { ownerId }),
+    },
   };
 }

@@ -1,0 +1,15 @@
+Usage: tests/integration/run_backend_smoke.sh [--help]
+
+Runs the actual backend seam through the visible Godot main scene. The scene
+connects, waits for a server snapshot, starts one R1 batch on an idle line,
+polls the command status, and asserts the resulting inventory from the next
+server snapshots.
+
+Environment:
+  GODOT_BIN        Godot 4.7 executable. Required unless `godot` is on PATH.
+  GF_API_TOKEN     Backend bearer token, 32+ characters. Required.
+  GF_BACKEND_URL   Backend base URL. Default: http://127.0.0.1:8787
+  GF_SMOKE_TIMEOUT Overall timeout in seconds. Default: 60
+
+The token is only passed to Godot through the environment; this script never
+prints it. Plaintext http:// is accepted for loopback hosts only.
