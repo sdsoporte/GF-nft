@@ -28,6 +28,10 @@ import {
   type ProductionRequestInput,
 } from './match.ts';
 import type { MatchStore } from '../../src/persistence/matchStore.ts';
+import type { McpGateway } from '../../src/mcp/McpGateway.ts';
+import { createMcpRuntime, type McpRuntime } from './mcpRuntime.ts';
+import { GrantIssueError, type GrantIssueInput } from './grantService.ts';
+import { readFactoryConfig } from './config.ts';
 
 /** Hard limit for request bodies. */
 export const MAX_REQUEST_BODY_BYTES = 8 * 1024;
@@ -48,6 +52,10 @@ export interface FactoryServerOptions {
    * and closes it after `close()`, so the transport layer never opens files.
    */
   readonly store?: MatchStore;
+  /** Explicit opt-in to single-owner administration; absent leaves legacy routes unchanged. */
+  readonly ownerId?: string;
+  /** Deterministic security clock for tests; production uses Date.now. */
+  readonly securityNow?: () => number;
 }
 
 export interface FactoryServerAddress {
@@ -59,6 +67,8 @@ export interface FactoryServerHandle {
   readonly server: Server;
   readonly match: FactoryMatch;
   readonly clock: TickClock;
+  /** Server-owned runtime, not an external MCP transport/catalog. */
+  readonly mcp?: McpGateway;
   listen(options?: { host?: string; port?: number }): Promise<FactoryServerAddress>;
   close(): Promise<void>;
 }
@@ -66,6 +76,7 @@ export interface FactoryServerHandle {
 interface HandlerContext {
   readonly token: string;
   readonly match: FactoryMatch;
+  readonly owner: McpRuntime | null;
 }
 
 type RouteName = 'health' | 'state' | 'production' | 'command';
@@ -134,12 +145,15 @@ function tokensMatch(expected: string, provided: string): boolean {
   return timingSafeEqual(expectedBytes, providedBytes);
 }
 
-function isAuthorized(req: IncomingMessage, expectedToken: string): boolean {
+function readBearer(req: IncomingMessage): string | undefined {
   const header = req.headers.authorization;
-  if (typeof header !== 'string') return false;
-  const parts = /^Bearer[ ]+([^ ]+)$/i.exec(header.trim());
-  if (!parts) return false;
-  return tokensMatch(expectedToken, parts[1]);
+  if (typeof header !== 'string') return undefined;
+  return /^Bearer[ ]+([^ ]+)$/i.exec(header.trim())?.[1];
+}
+
+function isAuthorized(req: IncomingMessage, expectedToken: string): boolean {
+  const token = readBearer(req);
+  return token !== undefined && tokensMatch(expectedToken, token);
 }
 
 type BodyRead =
@@ -275,12 +289,88 @@ async function handleProduction(
   }
 }
 
+async function handleOwnerRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  context: HandlerContext,
+): Promise<boolean> {
+  const owner = context.owner;
+  if (!owner) return false;
+  const path = normalizePath(pathname);
+  const login = path === '/v1/owner/sessions';
+  const logout = path === '/v1/owner/sessions/current';
+  const collection = path === '/v1/owner/grants';
+  const item = /^\/v1\/owner\/grants\/([^/]+)$/.exec(path);
+  if (!login && !logout && !collection && !item) return false;
+  const method = req.method ?? 'GET';
+  const methodAllowed = login ? method === 'POST'
+    : logout ? method === 'DELETE'
+    : collection ? method === 'GET' || method === 'POST'
+    : method === 'GET' || method === 'DELETE';
+  if (!methodAllowed) {
+    await discardBody(req); sendError(res, ERRORS.methodNotAllowed); return true;
+  }
+  if (login) {
+    await discardBody(req);
+    if (!isAuthorized(req, context.token)) { sendError(res, ERRORS.unauthorized); return true; }
+    const session = owner.sessions.create(context.token);
+    if (!session) sendError(res, ERRORS.unauthorized);
+    else sendJson(res, 201, session);
+    return true;
+  }
+  const bearer = readBearer(req);
+  if (!owner.sessions.authenticate(bearer)) {
+    await discardBody(req); sendError(res, ERRORS.unauthorized); return true;
+  }
+  if (logout) {
+    await discardBody(req);
+    sendJson(res, 200, { revoked: owner.sessions.revoke(bearer) }); return true;
+  }
+  if (collection && method === 'GET') {
+    await discardBody(req); sendJson(res, 200, { grants: owner.grants.list() }); return true;
+  }
+  if (collection) {
+    const mediaType = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
+    if (mediaType !== 'application/json') {
+      await discardBody(req);
+      sendJson(res, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'The grant request must be application/json.' } });
+      return true;
+    }
+    const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
+    if (!body.ok) { sendError(res, body.reason === 'too_large' ? ERRORS.requestTooLarge : invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson)); return true; }
+    let input: unknown;
+    try { input = JSON.parse(body.text); }
+    catch { sendError(res, invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson)); return true; }
+    try { sendJson(res, 201, owner.grants.issue(input as GrantIssueInput)); }
+    catch (error) {
+      if (!(error instanceof GrantIssueError)) throw error;
+      // Never echo attacker-supplied policy values or credentials.
+      sendJson(res, 400, { error: { code: 'ERR_INVALID_PAYLOAD', message: 'Invalid grant policy.' } });
+    }
+    return true;
+  }
+  await discardBody(req);
+  let grantId: string;
+  try { grantId = decodeURIComponent(item![1]); }
+  catch { sendError(res, ERRORS.notFound); return true; }
+  if (method === 'GET') {
+    const grant = owner.grants.get(grantId);
+    if (grant) sendJson(res, 200, { grant });
+    else sendError(res, ERRORS.notFound);
+  } else if (owner.grants.revoke(grantId)) sendJson(res, 200, { revoked: true });
+  else sendError(res, ERRORS.notFound);
+  return true;
+}
+
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
   context: HandlerContext,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://server.invalid');
+  if (context.owner && url.pathname.startsWith('/v1/owner/') &&
+      await handleOwnerRequest(req, res, url.pathname, context)) return;
   const route = resolveRoute(req.method ?? 'GET', url.pathname);
 
   if (route.kind === 'not_found') {
@@ -330,6 +420,11 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     throw new Error('createFactoryServer requires a non-empty bearer token');
   }
 
+  const ownerId = options.ownerId === '' ? undefined : options.ownerId;
+  if (ownerId !== undefined) {
+    const validation = readFactoryConfig({ GF_API_TOKEN: options.token, GF_OWNER_ID: ownerId });
+    if (!validation.ok) throw new Error(validation.errors.join(' '));
+  }
   const tickIntervalMs = options.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const match =
     options.match ??
@@ -340,7 +435,10 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
       store: options.store,
     });
   const clock = options.clock ?? new IntervalTickClock(tickIntervalMs);
-  const context: HandlerContext = { token: options.token, match };
+  const owner = ownerId === undefined ? null : createMcpRuntime({
+    ownerId, ownerSecret: options.token, match, store: options.store, now: options.securityNow,
+  });
+  const context: HandlerContext = { token: options.token, match, owner };
   const defaultHost = options.host ?? '127.0.0.1';
   const defaultPort = options.port ?? 8787;
 
@@ -357,6 +455,7 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     server,
     match,
     clock,
+    ...(owner ? { mcp: owner.gateway } : {}),
     listen: (listenOptions = {}) =>
       new Promise<FactoryServerAddress>((resolve, reject) => {
         const host = listenOptions.host ?? defaultHost;
@@ -380,11 +479,9 @@ export function createFactoryServer(options: FactoryServerOptions): FactoryServe
     close: () =>
       new Promise<void>((resolve) => {
         clock.stop();
-        if (!server.listening) {
-          resolve();
-          return;
-        }
-        server.close(() => resolve());
+        const closed = (): void => { owner?.close(); resolve(); };
+        if (!server.listening) { closed(); return; }
+        server.close(closed);
       }),
   };
 }

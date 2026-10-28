@@ -18,6 +18,7 @@ import { SimulatorEngine } from '../engine/SimulatorEngine.ts';
 import {
   McpAuditLogEntry,
   McpAuthorizationContext,
+  McpGatewayOptions,
   McpErrorCode,
   McpGrant,
   McpResponse,
@@ -26,6 +27,7 @@ import {
 } from './types.ts';
 import {
   CancelOwnPendingOfferSchema,
+  LineIdSchema,
   DraftSupplyOfferSchema,
   GetActionHistorySchema,
   GetContractsSchema,
@@ -40,7 +42,7 @@ import {
   SetProductionTargetSchema,
   sanitizeMcpIdentifier,
 } from './schemas.ts';
-import { ItemId, RecipeId, LinePriority } from '../domain/types.ts';
+import { ItemId, RecipeId, LinePriority, EnqueueCommandInput } from '../domain/types.ts';
 
 /**
  * Hash utility for payload auditing (FNV-1a 32-bit hex)
@@ -115,7 +117,8 @@ export class McpGateway {
 
   constructor(
     private readonly engine: SimulatorEngine,
-    authorization?: McpAuthorizationContext
+    authorization?: McpAuthorizationContext,
+    private readonly options: McpGatewayOptions = {}
   ) {
     this.authorizedMatchId = authorization?.matchId;
     this.companyPlayers = new Map(Object.entries(authorization?.companyPlayers ?? {}));
@@ -125,6 +128,13 @@ export class McpGateway {
    * Register or provision a grant
    */
   public registerGrant(grant: McpGrant): void {
+    if (this.options.resolveGrant) {
+      throw new Error('Grants are server-managed; use authenticated owner administration.');
+    }
+    const previous = this.grants.get(grant.grantId);
+    if (previous && this.tokenToGrantId.get(previous.token) === grant.grantId) {
+      this.tokenToGrantId.delete(previous.token);
+    }
     this.grants.set(grant.grantId, grant);
     this.tokenToGrantId.set(grant.token, grant.grantId);
   }
@@ -172,7 +182,7 @@ export class McpGateway {
     const payloadHash = hashPayload(rawParams);
 
     // Step 1: Validate Token & Grant
-    if (!token || !token.startsWith('gf_mcp_')) {
+    if (typeof token !== 'string' || !token.startsWith('gf_mcp_')) {
       return this.recordFailure(
         startTime,
         currentTick,
@@ -186,7 +196,10 @@ export class McpGateway {
     }
 
     const grantId = this.tokenToGrantId.get(token);
-    const grant = grantId ? this.grants.get(grantId) : undefined;
+    const resolved = this.options.resolveGrant?.(token);
+    const grant: McpGrant | undefined = this.options.resolveGrant
+      ? (resolved ? { ...resolved.grant, token: '' } : undefined)
+      : (grantId ? this.grants.get(grantId) : undefined);
     if (!grant) {
       return this.recordFailure(
         startTime,
@@ -200,7 +213,7 @@ export class McpGateway {
       );
     }
 
-    if (grant.revoked) {
+    if (grant.revoked || resolved?.revoked) {
       return this.recordFailure(
         startTime,
         currentTick,
@@ -213,8 +226,10 @@ export class McpGateway {
       );
     }
 
-    const nowIso = new Date().toISOString();
-    if (grant.expiresAtUtc < nowIso) {
+    const nowMs = this.options.now?.() ?? Date.now();
+    const expiresAtMs = Date.parse(grant.expiresAtUtc);
+    const expired = resolved?.expired ?? (!Number.isFinite(expiresAtMs) || !Number.isFinite(nowMs) || nowMs >= expiresAtMs);
+    if (expired) {
       return this.recordFailure(
         startTime,
         currentTick,
@@ -299,6 +314,19 @@ export class McpGateway {
         'ERR_SCOPE_DISABLED_IN_PHASE_1',
         'Write tools are disabled in Phase 1 (Read-Only). Upgrade grant to Phase 1B.'
       );
+    }
+
+    // Stored-policy line denials precede quota consumption. The legacy isolated
+    // gateway keeps its existing write-error behavior for compatibility.
+    if (this.options.resolveGrant && isWriteTool && typedTool in LINE_COOLDOWNS_TICKS) {
+      const line = rawParams && typeof rawParams === 'object'
+        ? (rawParams as { line_id?: unknown }).line_id : undefined;
+      if (LineIdSchema.safeParse(line).success && !grant.resourceAllowlist.includes(line as string)) {
+        return this.recordFailure(
+          startTime, currentTick, grant.grantId, grant.companyId, toolName, payloadHash,
+          'ERR_RESOURCE_NOT_ALLOWED', 'Production line is not authorized by this grant'
+        );
+      }
     }
 
     // Step 4: Rate Limiting
@@ -512,7 +540,7 @@ export class McpGateway {
         this.verifyResourceAllowlist(grant, p.line_id);
         this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_target_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -551,7 +579,7 @@ export class McpGateway {
         this.verifyResourceAllowlist(grant, p.line_id);
         this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_prio_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -588,7 +616,7 @@ export class McpGateway {
         this.verifyResourceAllowlist(grant, p.line_id);
         this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_pause_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -623,7 +651,7 @@ export class McpGateway {
         this.verifyResourceAllowlist(grant, p.line_id);
         this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_resume_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -656,7 +684,7 @@ export class McpGateway {
       case 'schedule_internal_transport': {
         const p = ScheduleInternalTransportSchema.parse(rawParams);
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_ship_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -708,7 +736,7 @@ export class McpGateway {
           );
         }
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_draft_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -746,7 +774,7 @@ export class McpGateway {
       case 'cancel_own_pending_offer': {
         const p = CancelOwnPendingOfferSchema.parse(rawParams);
 
-        const enqueued = this.engine.submitCommand({
+        const enqueued = this.submitCommand({
           commandId: `mcp_cancel_${Date.now()}`,
           companyId: grant.companyId,
           scheduledTick: nextTick,
@@ -782,6 +810,12 @@ export class McpGateway {
 
   // --- INTERNAL SAFETY & VALIDATION METHODS ---
 
+  private submitCommand(command: EnqueueCommandInput): boolean {
+    return this.options.submitCommand
+      ? this.options.submitCommand(command)
+      : this.engine.submitCommand(command);
+  }
+
   private verifyResourceAllowlist(grant: McpGrant, lineId: string): void {
     if (!grant.resourceAllowlist.includes(lineId)) {
       throw new Error(
@@ -793,7 +827,7 @@ export class McpGateway {
   }
 
   private checkRateLimits(grant: McpGrant, isWriteTool: boolean): string | null {
-    const now = Date.now();
+    const now = this.options.now?.() ?? Date.now();
     const oneMinuteAgo = now - 60000;
 
     if (!isWriteTool) {

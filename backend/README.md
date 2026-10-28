@@ -1,8 +1,8 @@
 # Authoritative factory backend (development slice)
 
 One Bun process owns the match: the clock, the command queue and the inventory.
-Godot and the React prototype are clients that read state and send requests; they
-never run a second simulation. The wire contract is frozen in
+Godot reads this authoritative state and sends requests. The legacy React
+prototype is an isolated local playground, not a real credential issuer. The wire contract is frozen in
 [`../docs/factory-api.md`](../docs/factory-api.md).
 
 This is a first operable slice, not a finished service: one metallurgy factory,
@@ -47,7 +47,8 @@ curl -s -H "Authorization: Bearer $GF_API_TOKEN" \
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `GF_API_TOKEN` | yes | Bearer token for every `/v1/` route. At least 32 printable characters, no spaces. Never logged, committed or baked into the image. |
+| `GF_API_TOKEN` | yes | Root bearer for game routes and owner-session exchange. At least 32 printable characters, no spaces. It cannot directly administer grants. Never logged, committed or baked into the image. |
+| `GF_OWNER_ID` | no | Explicit local-owner identity (1–64 ASCII letters, digits, underscores/dashes). Empty/unset keeps owner administration disabled. |
 | `GF_HOST` | no | Bind address, default `127.0.0.1`. The image sets `0.0.0.0` so the published port can reach it. |
 | `GF_PORT` | no | Listen port, default `8787`. |
 | `GF_SQLITE_PATH` | no | SQLite file for persisted match state; migrations run on boot. Unset = in-memory match. `compose.yaml` defaults it to `/data/factory.db` on the named volume. |
@@ -65,6 +66,17 @@ usage text.
 | `GET /v1/state` | yes | match ID, tick, tick interval, own-company snapshot, `R1` recipe |
 | `POST /v1/production` | yes | `202 {"commandId":...,"status":"queued"}` |
 | `GET /v1/commands/<id>` | yes | `queued`, `executed` (+`executedAtTick`) or `rejected` (+`errorCode`) |
+
+## Owner sessions and MCP grants
+
+With `GF_OWNER_ID` configured, owner-session authentication protects grant
+creation, listing, lookup and revocation. Only issuance returns an opaque secret;
+storage keeps SHA-256 and metadata reads expose neither secret nor digest.
+See [the owner API quick path](../docs/mcp-owner-api.md) for endpoints, scope/TTL
+policy, restart semantics and migration 5's mandatory legacy-grant reissuance.
+External MCP transport/catalog remains issue #9; embedding callers use the
+server-owned gateway with durable command admission. The image copies only the
+locked Zod runtime from a dependency stage; no UI, test fixtures or env files.
 
 ## Behaviour that the tests pin
 
@@ -151,8 +163,9 @@ the same acknowledgement instead of duplicating a movement.
   match (Docker is deployment, not persistence). With it — the compose default —
   the state lives in SQLite on the volume and a restart re-adopts the same match.
 - One factory, one recipe, one batch per request. Contracts, wallets, NPC
-  automation, multi-tenant grants and the external game MCP stay in the issue
-  backlog; issue #8's SQLite durability now ships here (see Persistence), while
+  automation, multi-tenant ownership and the external game MCP stay in the issue
+  backlog. Single-owner grant administration and issue #8's SQLite durability
+  now ship here (see the owner API and Persistence), while
   issue closure remains the maintainer's decision.
 - Loopback bind and a shared bearer token are development conveniences, not
   production authentication. Do not expose the published port to the internet.

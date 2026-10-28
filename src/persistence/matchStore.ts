@@ -90,8 +90,8 @@ export interface CommitCommandInput {
   readonly command: QueuedCommandWrite;
   /** Permanent dedupe key for the command. */
   readonly processed: ProcessedIdempotencyWrite;
-  /** HTTP acknowledgement row (carries the retention capacity). */
-  readonly acknowledgement: AckLedgerWrite;
+  /** HTTP-only acknowledgement; non-HTTP admissions do not consume its capacity. */
+  readonly acknowledgement?: AckLedgerWrite;
   /** Last step before COMMIT: hand the command to the engine. */
   readonly apply: () => boolean;
 }
@@ -181,13 +181,15 @@ export class MatchStore {
     const matchId = input.metadata.matchId;
     assertSameMatch(matchId, input.command.matchId, 'queue row');
     assertSameMatch(matchId, input.processed.matchId, 'processed key');
-    assertSameMatch(matchId, input.acknowledgement.matchId, 'acknowledgement');
+    if (input.acknowledgement) {
+      assertSameMatch(matchId, input.acknowledgement.matchId, 'acknowledgement');
+    }
 
     runAtomic(this.database, () => {
       this.repositories.matches.save(input.metadata);
       this.repositories.queue.enqueue(input.command);
       this.repositories.queue.markProcessed(input.processed);
-      this.repositories.ackLedger.record(input.acknowledgement);
+      if (input.acknowledgement) this.repositories.ackLedger.record(input.acknowledgement);
       if (!input.apply()) {
         throw new CommandNotAccepted(input.command.commandId);
       }

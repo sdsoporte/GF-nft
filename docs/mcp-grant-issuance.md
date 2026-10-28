@@ -43,8 +43,9 @@ The gateway must enforce revoked/expired flags, scopes, phase and resources;
 | Expiry | Denies at `now >= expiresAtUtc`; malformed dates fail closed. |
 
 `resolve` rejects malformed/mock credentials and other owner/company/match
-contexts. Its stored policy contains a digest for server use only; never return
-that resolver envelope to a browser. See [storage and retirement](mcp-grant-storage.md)
+contexts. Its returned policy omits both the secret and digest; the envelope
+still is not authorization and must pass the gateway's checks. Its injected
+`now` callback returns a `Date` (owner sessions use epoch milliseconds). See [storage and retirement](mcp-grant-storage.md)
 for migration 5's forced reissuance requirement before any future deployment.
 
 ## Checks and remaining integration

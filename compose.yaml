@@ -19,6 +19,9 @@ services:
     environment:
       # Compose refuses to start without a token; 32+ printable characters.
       GF_API_TOKEN: ${GF_API_TOKEN:?GF_API_TOKEN is required}
+      # Empty disables owner administration.
+      # Configure explicitly before issuing grants.
+      GF_OWNER_ID: "${GF_OWNER_ID:-}"
       GF_HOST: 0.0.0.0
       GF_PORT: "8787"
       # Persisted match state; migrations run on boot, /data is bun-writable.

@@ -13,6 +13,7 @@ import process from 'node:process';
 import {
   HOST_ENV_VAR,
   MIN_TOKEN_LENGTH,
+  OWNER_ID_ENV_VAR,
   PORT_ENV_VAR,
   SQLITE_PATH_ENV_VAR,
   TOKEN_ENV_VAR,
@@ -38,17 +39,31 @@ Environment:
   ${HOST_ENV_VAR}       Bind address. Default 127.0.0.1; use 0.0.0.0 inside a
                 container so the published port can reach it.
   ${PORT_ENV_VAR}       TCP listen port. Default 8787.
+  ${OWNER_ID_ENV_VAR}   Optional single-owner identity (1-64 ASCII letters, digits,
+                underscores or dashes). Empty/unset disables owner/MCP routes.
   ${SQLITE_PATH_ENV_VAR}  Optional SQLite file that stores the match identity, the
                 command queue, idempotency keys, acknowledgements and command
                 results. Its parent directory is created on boot and the schema
                 is migrated before the server listens. Unset keeps the match
                 in memory only.
 
-Endpoints (all /v1/ routes require "Authorization: Bearer <${TOKEN_ENV_VAR}>"):
+Game endpoints require "Authorization: Bearer <${TOKEN_ENV_VAR}>":
   GET  /health              Liveness and protocol version; no credentials.
   GET  /v1/state            Own-company snapshot, tick and the R1 recipe.
   POST /v1/production       Queue one R1 batch on an owned production line.
   GET  /v1/commands/<id>    Command status: queued, executed or rejected.
+
+Owner endpoints (only when ${OWNER_ID_ENV_VAR} is configured):
+  POST   /v1/owner/sessions          Root bearer -> expiring owner session.
+  DELETE /v1/owner/sessions/current  Session bearer -> logout.
+  GET    /v1/owner/grants            Session bearer -> safe metadata only.
+  POST   /v1/owner/grants            Session bearer -> one-time token delivery.
+  GET    /v1/owner/grants/<id>       Session bearer -> safe metadata only.
+  DELETE /v1/owner/grants/<id>       Session bearer -> immediate revocation.
+
+External MCP transport/catalog remains separate (#9); embedding callers use the
+server-owned gateway, whose commands are persisted before acknowledgement.
+Migration 5 retires all legacy grants: plan reissuance before any deployment.
 
 The server owns the clock and advances one tick per second. With
 ${SQLITE_PATH_ENV_VAR} set, acknowledged requests and command results survive a
@@ -113,6 +128,7 @@ async function startRealServer(config: FactoryConfig): Promise<StartedServer> {
     token: config.token,
     host: config.host,
     port: config.port,
+    ...(config.ownerId === undefined ? {} : { ownerId: config.ownerId }),
     ...(persistence === null ? {} : { store: persistence.store }),
   });
   const address = await handle.listen({ host: config.host, port: config.port });

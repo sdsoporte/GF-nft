@@ -3,6 +3,8 @@
  * Specification reference: MCP 2026-07-28 (Stateless Protocol Core)
  */
 
+import type { EnqueueCommandInput } from '../domain/types.ts';
+
 export type McpPhaseMode = 'PHASE_1_READ_ONLY' | 'PHASE_1B_READ_WRITE';
 
 export type McpScope =
@@ -38,6 +40,19 @@ export interface McpGrant {
   readonly createdAtUtc: string;
   readonly expiresAtUtc: string;
   revoked: boolean;
+}
+
+/** Server resolution is fresh policy plus denial flags, never a cached bearer. */
+export interface McpResolvedGrant {
+  readonly grant: Omit<McpGrant, 'token'>;
+  readonly expired: boolean;
+  readonly revoked: boolean;
+}
+
+export interface McpGatewayOptions {
+  readonly resolveGrant?: (token: string) => McpResolvedGrant | undefined;
+  readonly submitCommand?: (command: EnqueueCommandInput) => boolean;
+  readonly now?: () => number;
 }
 
 export type McpReadToolName =
