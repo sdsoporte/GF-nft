@@ -16,30 +16,31 @@
 
 import { randomBytes } from 'node:crypto';
 
-import { getRecipe, getRecipeProfile } from '../../src/domain/recipeCatalog.ts';
+import { getRecipe, getRecipeProfile } from './domain/recipeCatalog.ts';
 import type {
   CommandExecutionResult,
   CompanyState,
+  EnqueueCommandInput,
   GameCommand,
   IndustrialClass,
   RecipeId,
-} from '../../src/domain/types.ts';
+} from './domain/types.ts';
 import {
   deriveGlobalProjectState,
   SimulatorEngine,
   type EngineHydration,
-} from '../../src/engine/SimulatorEngine.ts';
+} from './engine/SimulatorEngine.ts';
 import {
   CommandNotAccepted,
   type AdoptedMatch,
   type MatchStore,
-} from '../../src/persistence/matchStore.ts';
+} from './persistence/matchStore.ts';
 import type {
   CommandResultRecord,
   MatchMetadataWrite,
   QueuedCommandRecord,
-} from '../../src/persistence/repos/index.ts';
-import { runAtomic } from '../../src/persistence/transaction.ts';
+} from './persistence/repos/index.ts';
+import { runAtomic } from './persistence/transaction.ts';
 
 export const PROTOCOL_VERSION = 1;
 export const SERVER_COMPANY_ID = 'comp_metal_01';
@@ -161,6 +162,7 @@ function toExecutionResult(row: CommandResultRecord): CommandExecutionResult {
     success: row.success,
     ...(row.errorCode === undefined ? {} : { errorCode: row.errorCode }),
     ...(row.errorMessage === undefined ? {} : { errorMessage: row.errorMessage }),
+    ...(row.companyId === undefined ? {} : { companyId: row.companyId }),
   };
 }
 
@@ -470,6 +472,51 @@ export class FactoryMatch {
     this.requestLedger.set(input.requestId, { fingerprint, commandId });
     this.commandRecords.set(commandId, { commandId, status: 'queued' });
     return { kind: 'queued', commandId };
+  }
+
+  /** Admit an already authorized/validated MCP command before acknowledging it. */
+  public submitMcpCommand(input: EnqueueCommandInput): boolean {
+    const queue = this.engine.getCommandQueue();
+    if (input.companyId !== SERVER_COMPANY_ID || queue.isIdempotencyKeyUsed(input.idempotencyKey)) {
+      return false;
+    }
+    const command: EnqueueCommandInput = {
+      ...input,
+      commandId: `mcp_${randomBytes(12).toString('hex')}`,
+      companyId: SERVER_COMPANY_ID,
+      scheduledTick: this.engine.getCurrentTick() + 1,
+    };
+    if (this.store) {
+      const checkpoint = {
+        commands: queue.listPending(),
+        processedIdempotencyKeys: queue.listProcessedIdempotencyKeys(),
+        sequenceCounter: queue.getSequenceCounter(),
+      };
+      const nextSequence = this.currentSequenceNumber() + 1;
+      try {
+        this.store.commitCommand({
+          metadata: this.snapshotMetadata({ sequenceCounter: nextSequence }),
+          command: {
+            commandId: command.commandId, matchId: this.matchId,
+            companyId: command.companyId, sequenceNumber: nextSequence,
+            scheduledTick: command.scheduledTick, idempotencyKey: command.idempotencyKey,
+            commandType: command.type,
+            payloadJson: JSON.stringify({ ...command, sequenceNumber: nextSequence }),
+          },
+          processed: { matchId: this.matchId, commandId: command.commandId, idempotencyKey: command.idempotencyKey },
+          apply: () => this.engine.submitCommand(command),
+        });
+      } catch (error) {
+        // Also undo an in-memory admission if the transaction's COMMIT failed.
+        queue.restore(checkpoint);
+        if (error instanceof CommandNotAccepted) return false;
+        throw error;
+      }
+    } else if (!this.engine.submitCommand(command)) {
+      return false;
+    }
+    this.commandRecords.set(command.commandId, { commandId: command.commandId, status: 'queued' });
+    return true;
   }
 
   /**
