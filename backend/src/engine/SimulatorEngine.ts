@@ -36,6 +36,8 @@ import {
   SimulationSnapshot,
   SupplyContract,
 } from '../domain/types.ts';
+import type { CreditAccountRef, CreditLedgerMovement } from '../domain/creditLedger.ts';
+import { EngineCreditJournal, createEngineCreditOpening, type EngineCreditJournalState } from './EngineCreditJournal.ts';
 
 /**
  * Deterministic PRNG: Mulberry32
@@ -308,6 +310,7 @@ export function deriveGlobalProjectState(
  * in-process rollback handle, not a projection clients receive.
  */
 export interface EngineCheckpoint {
+  readonly creditLedger?: EngineCreditJournalState;
   readonly currentTick: number;
   readonly prngState: number;
   readonly contractCounter: number;
@@ -323,6 +326,8 @@ export interface EngineCheckpoint {
  * execution results are cloned; omitted fields keep their current values.
  */
 export interface EngineHydration {
+  /** Optional audit archive; otherwise observed restored state starts a CUTOVER. */
+  readonly creditLedger?: EngineCreditJournalState;
   /** Monotonic tick floor (`matches.current_tick`). */
   readonly currentTick?: number;
   readonly companies?: readonly CompanyState[];
@@ -425,8 +430,9 @@ export class SimulatorEngine {
   private globalProject: GlobalProjectState = createInitialGlobalProject();
 
   private contractCounter = 0;
+  private creditJournal: EngineCreditJournal | null = null;
 
-  constructor(seed: number = 42107) {
+  constructor(seed: number = 42107, private readonly journalMatchId: string = 'engine') {
     this.rng = new Mulberry32PRNG(seed);
   }
 
@@ -530,6 +536,15 @@ export class SimulatorEngine {
 
       this.companies.set(config.id, companyState);
     }
+    this.creditJournal = new EngineCreditJournal({
+      opening: createEngineCreditOpening(this.journalMatchId, 0, 'COMPLETE', this.getAllCompanies(), []),
+      movements: [],
+    }, 0);
+  }
+
+  public getCreditLedger(): EngineCreditJournalState {
+    if (!this.creditJournal) throw new Error('[GigaForge] Initialize the match before reading its credit journal');
+    return this.creditJournal.snapshot();
   }
 
   public getCurrentTick(): number {
@@ -554,6 +569,7 @@ export class SimulatorEngine {
         sequenceCounter: this.commandQueue.getSequenceCounter(),
       },
       commandResults: this.getExecutionHistory().map((result) => ({ ...result })),
+      ...(this.creditJournal ? { creditLedger: this.creditJournal.snapshot() } : {}),
     };
   }
 
@@ -575,6 +591,7 @@ export class SimulatorEngine {
       contractCounter: checkpoint.contractCounter,
       queue: checkpoint.queue,
       commandResults: checkpoint.commandResults,
+      ...(checkpoint.creditLedger ? { creditLedger: checkpoint.creditLedger } : {}),
     });
     this.rng.restoreState(checkpoint.prngState);
   }
@@ -614,6 +631,17 @@ export class SimulatorEngine {
    * instead of producing a silently different match.
    */
   public hydrate(input: EngineHydration): void {
+    const tick = input.currentTick ?? this.currentTick;
+    const rebuildJournal = input.companies !== undefined || input.contracts !== undefined || input.currentTick !== undefined;
+    const journalState = input.creditLedger ?? (rebuildJournal ? {
+      opening: createEngineCreditOpening(this.journalMatchId, tick, 'CUTOVER',
+        input.companies ?? this.getAllCompanies(), input.contracts ?? this.getAllContracts()),
+      movements: [],
+    } : undefined);
+    const restoredJournal = journalState ? new EngineCreditJournal(journalState, tick) : undefined;
+    if (journalState && journalState.opening.matchId !== this.journalMatchId) {
+      throw new Error('[GigaForge] Credit journal belongs to another match');
+    }
     if (input.companies !== undefined) {
       const restoredCompanies = new Map<string, CompanyState>();
       for (const company of input.companies) {
@@ -678,6 +706,7 @@ export class SimulatorEngine {
         this.commandResults.push({ ...result });
       }
     }
+    if (restoredJournal) this.creditJournal = restoredJournal;
   }
 
   public getCompany(companyId: string): CompanyState | undefined {
@@ -901,6 +930,7 @@ export class SimulatorEngine {
       }
 
       const totalMaintenanceDue = activeLineCount * SimulatorEngine.MAINTENANCE_COST_PER_LINE;
+      const actualPayment = Math.min(company.credits, totalMaintenanceDue);
       if (company.credits >= totalMaintenanceDue) {
         company.credits -= totalMaintenanceDue;
         company.maintenancePaidTicks += 1;
@@ -914,7 +944,28 @@ export class SimulatorEngine {
           }
         }
       }
+      this.recordCredit('MAINTENANCE_SINK', actualPayment,
+        { kind: 'AVAILABLE', companyId: company.companyId }, { kind: 'MAINTENANCE_SINK' });
     }
+  }
+
+  private recordCredit(
+    kind: CreditLedgerMovement['kind'], amount: number, source: CreditAccountRef,
+    destination: CreditAccountRef, contractId?: string,
+  ): void {
+    this.creditJournal?.record(this.currentTick, kind, amount, source, destination, contractId);
+  }
+
+  private payDeliveredValue(contract: SupplyContract): void {
+    const seller = this.companies.get(contract.sellerCompanyId);
+    if (!seller) throw new Error('[GigaForge] Settlement seller is missing');
+    const gross = contract.deliveredQuantity * contract.unitPriceCredits;
+    const fee = Math.floor(gross * SimulatorEngine.MARKET_TRANSACTION_FEE_BPS / 10000);
+    seller.credits += gross - fee;
+    const source = { kind: 'BUYER_ESCROW', companyId: contract.buyerCompanyId } as const;
+    this.recordCredit('DELIVERY_PAYMENT', gross - fee, source,
+      { kind: 'AVAILABLE', companyId: contract.sellerCompanyId }, contract.contractId);
+    this.recordCredit('FEE_SINK', fee, source, { kind: 'MARKET_FEE_SINK' }, contract.contractId);
   }
 
   /**
@@ -939,13 +990,20 @@ export class SimulatorEngine {
           const missingUnits = contract.totalQuantity - contract.deliveredQuantity;
           const undeliveredValue = missingUnits * contract.unitPriceCredits;
           const penaltyAmount = missingUnits * contract.penaltyPerMissingUnit;
+          this.payDeliveredValue(contract);
 
           if (buyer) {
             // Buyer is refunded undelivered value from locked funds
             buyer.credits += undeliveredValue;
+            this.recordCredit('REFUND', undeliveredValue,
+              { kind: 'BUYER_ESCROW', companyId: contract.buyerCompanyId },
+              { kind: 'AVAILABLE', companyId: contract.buyerCompanyId }, contract.contractId);
             // Buyer is indemnified using seller collateral
             const indemnity = Math.min(contract.collateralSellerCredits, penaltyAmount);
             buyer.credits += indemnity;
+            this.recordCredit('INDEMNITY_TRANSFER', indemnity,
+              { kind: 'SELLER_COLLATERAL', companyId: contract.sellerCompanyId },
+              { kind: 'AVAILABLE', companyId: contract.buyerCompanyId }, contract.contractId);
           }
 
           if (seller) {
@@ -956,6 +1014,9 @@ export class SimulatorEngine {
             const remainingCollateral = contract.collateralSellerCredits - indemnityPaid;
             if (remainingCollateral > 0) {
               seller.credits += remainingCollateral;
+              this.recordCredit('REFUND', remainingCollateral,
+                { kind: 'SELLER_COLLATERAL', companyId: contract.sellerCompanyId },
+                { kind: 'AVAILABLE', companyId: contract.sellerCompanyId }, contract.contractId);
             }
           }
         }
@@ -1339,6 +1400,12 @@ export class SimulatorEngine {
         // Lock buyer funds & seller collateral
         company.credits -= contract.totalValueCredits;
         seller.credits -= contract.collateralSellerCredits;
+        this.recordCredit('BUYER_ESCROW_DEPOSIT', contract.totalValueCredits,
+          { kind: 'AVAILABLE', companyId: company.companyId },
+          { kind: 'BUYER_ESCROW', companyId: company.companyId }, contract.contractId);
+        this.recordCredit('SELLER_COLLATERAL_DEPOSIT', contract.collateralSellerCredits,
+          { kind: 'AVAILABLE', companyId: seller.companyId },
+          { kind: 'SELLER_COLLATERAL', companyId: seller.companyId }, contract.contractId);
 
         // Activate contract
         // Re-assign buyer if it was open
@@ -1382,7 +1449,7 @@ export class SimulatorEngine {
 
       case 'SCHEDULE_INTERNAL_TRANSPORT': {
         const contract = this.contracts.get(cmd.contractId);
-        if (!contract || contract.status !== 'ACTIVE') {
+        if (!contract || contract.status !== 'ACTIVE' || this.currentTick > contract.deadlineTick) {
           return {
             commandId: cmd.commandId,
             idempotencyKey: cmd.idempotencyKey,
@@ -1462,13 +1529,10 @@ export class SimulatorEngine {
 
           // Return seller collateral
           company.credits += contract.collateralSellerCredits;
-
-          // 2% market transaction fee burned
-          const marketFee = Math.floor(
-            (contract.totalValueCredits * SimulatorEngine.MARKET_TRANSACTION_FEE_BPS) / 10000
-          );
-          const netPayment = contract.totalValueCredits - marketFee;
-          company.credits += netPayment;
+          this.recordCredit('REFUND', contract.collateralSellerCredits,
+            { kind: 'SELLER_COLLATERAL', companyId: company.companyId },
+            { kind: 'AVAILABLE', companyId: company.companyId }, contract.contractId);
+          this.payDeliveredValue(contract);
 
           // Both participants gain reputation for successful contract
           company.reputation += 5;
