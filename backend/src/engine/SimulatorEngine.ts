@@ -1145,6 +1145,27 @@ export class SimulatorEngine {
           };
         }
 
+        if (contract.sellerCompanyId === company.companyId) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_SELF_CONTRACT',
+            errorMessage: 'Seller cannot accept its own offer',
+          };
+        }
+        if (contract.buyerCompanyId && contract.buyerCompanyId !== company.companyId) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_OFFER_NOT_FOR_BUYER',
+            errorMessage: 'Only the designated buyer can accept this offer',
+          };
+        }
+
         const seller = this.companies.get(contract.sellerCompanyId);
         if (!seller) {
           return {

@@ -6,10 +6,8 @@
  * `submitCommand`, `processTick`, `getCompany`, `getContract`,
  * `getAllContracts` and `getExecutionHistory`.
  *
- * Open P0 defect #4 (acceptance overwrites `buyerCompanyId` without validating
- * `targetBuyerId`, and self-dealing is not policed) is NOT asserted as correct
- * behavior. Those two scenarios are explicit pending tests that assert the
- * expected behavior and stay skipped until issue #4 lands its fix.
+ * Issue #4 regressions pin targeted-buyer authorization, self-dealing rejection
+ * and single-escrow acceptance through the same authoritative command queue.
  */
 
 import assert from 'node:assert/strict';
@@ -30,6 +28,18 @@ import {
   executionResult,
   setStock,
 } from './contracts-helpers.ts';
+
+function economicState(engine: ContractDriver['engine']) {
+  return [SELLER, BUYER, OUTSIDER_A, OUTSIDER_B].map((companyId) => {
+    const company = companyOf(engine, companyId);
+    return structuredClone({
+      companyId,
+      credits: company.credits,
+      inventory: company.inventory,
+      reputation: company.reputation,
+    });
+  });
+}
 
 test('creating an open offer stores a pending contract with 20% collateral and no escrow', () => {
   const driver = new ContractDriver();
@@ -187,9 +197,7 @@ test('an open offer is assigned to the company that accepts it', () => {
   assert.equal(companyOf(engine, BUYER).credits, 10000);
 });
 
-test('a targeted offer cannot be accepted by a non-targeted company (issue #4)', {
-  skip: 'issue #4 is open: ACCEPT_SUPPLY_OFFER overwrites buyerCompanyId without validating targetBuyerId',
-}, () => {
+test('a targeted offer cannot be accepted by a non-targeted company (issue #4)', () => {
   const engine = createEngine();
   const driver = new ContractDriver(engine);
 
@@ -203,21 +211,20 @@ test('a targeted offer cannot be accepted by a non-targeted company (issue #4)',
   driver.run(1);
   const contractId = engine.getAllContracts()[0].contractId;
 
-  // Expected behavior once issue #4 is fixed: a company that is not the
-  // target must not be able to hijack the offer.
+  const offerBefore = structuredClone(contractOf(engine, contractId));
+  const economyBefore = economicState(engine);
+  const historyBefore = engine.getExecutionHistory().length;
   const hijackId = driver.acceptOffer(OUTSIDER_B, contractId);
   driver.run(1);
 
-  assert.equal(executionResult(engine, hijackId).success, false);
-  const contract = contractOf(engine, contractId);
-  assert.equal(contract.status, 'PENDING');
-  assert.equal(contract.buyerCompanyId, BUYER);
-  assert.equal(companyOf(engine, OUTSIDER_B).credits, 10000);
+  expectRejected(engine, hijackId, 'ERR_OFFER_NOT_FOR_BUYER');
+  assert.equal(executionResult(engine, hijackId).errorMessage, 'Only the designated buyer can accept this offer');
+  assert.deepEqual(contractOf(engine, contractId), offerBefore);
+  assert.deepEqual(economicState(engine), economyBefore);
+  assert.equal(engine.getExecutionHistory().length, historyBefore + 1);
 });
 
-test('a seller cannot accept its own offer (issue #4)', {
-  skip: 'issue #4 is open: self-dealing is not policed, the seller can accept its own offer',
-}, () => {
+test('a seller cannot accept its own offer (issue #4)', () => {
   const engine = createEngine();
   const driver = new ContractDriver(engine);
 
@@ -230,15 +237,65 @@ test('a seller cannot accept its own offer (issue #4)', {
   driver.run(1);
   const contractId = engine.getAllContracts()[0].contractId;
 
-  // Expected behavior once issue #4 is fixed: self-dealing must be rejected.
+  const offerBefore = structuredClone(contractOf(engine, contractId));
+  const economyBefore = economicState(engine);
+  const historyBefore = engine.getExecutionHistory().length;
   const selfAcceptId = driver.acceptOffer(SELLER, contractId);
   driver.run(1);
 
-  assert.equal(executionResult(engine, selfAcceptId).success, false);
-  const contract = contractOf(engine, contractId);
-  assert.equal(contract.status, 'PENDING');
-  assert.equal(contract.buyerCompanyId, '');
-  assert.equal(companyOf(engine, SELLER).credits, 10000);
+  expectRejected(engine, selfAcceptId, 'ERR_SELF_CONTRACT');
+  assert.equal(executionResult(engine, selfAcceptId).errorMessage, 'Seller cannot accept its own offer');
+  assert.deepEqual(contractOf(engine, contractId), offerBefore);
+  assert.deepEqual(economicState(engine), economyBefore);
+  assert.equal(engine.getExecutionHistory().length, historyBefore + 1);
+});
+
+test('the designated buyer preserves every offer term when accepting', () => {
+  const driver = new ContractDriver();
+  const { engine } = driver;
+  driver.createOffer(SELLER, {
+    itemId: 'STEEL_PLATE', quantity: 10, unitPriceCredits: 50,
+    deadlineTicks: 100, targetBuyerId: BUYER,
+  });
+  driver.run(1);
+  const offerBefore = structuredClone(engine.getAllContracts()[0]);
+  const accepted = driver.acceptOffer(BUYER, offerBefore.contractId);
+  driver.run(1);
+
+  expectExecuted(engine, accepted);
+  assert.deepEqual(contractOf(engine, offerBefore.contractId), { ...offerBefore, status: 'ACTIVE' });
+  assert.equal(companyOf(engine, BUYER).credits, 9500);
+  assert.equal(companyOf(engine, SELLER).credits, 9900);
+});
+
+test('same-tick acceptance and later retries lock escrow only once (issue #4)', () => {
+  const driver = new ContractDriver();
+  const { engine } = driver;
+  driver.createOffer(SELLER, {
+    itemId: 'STEEL_PLATE', quantity: 10, unitPriceCredits: 50, deadlineTicks: 100,
+  });
+  driver.run(1);
+  const offerBefore = structuredClone(engine.getAllContracts()[0]);
+  const economyBefore = economicState(engine);
+  const first = driver.acceptOffer(BUYER, offerBefore.contractId);
+  const competing = driver.acceptOffer(OUTSIDER_B, offerBefore.contractId);
+  driver.run(1);
+
+  expectExecuted(engine, first);
+  expectRejected(engine, competing, 'ERR_OFFER_NOT_AVAILABLE');
+  assert.deepEqual(contractOf(engine, offerBefore.contractId), {
+    ...offerBefore, buyerCompanyId: BUYER, status: 'ACTIVE',
+  });
+  assert.equal(companyOf(engine, BUYER).credits, 9500);
+  assert.equal(companyOf(engine, SELLER).credits, 9900);
+  assert.equal(companyOf(engine, OUTSIDER_B).credits, 10000);
+  const after = economicState(engine);
+  assert.deepEqual(after.map(({ inventory }) => inventory), economyBefore.map(({ inventory }) => inventory));
+
+  const retry = driver.acceptOffer(BUYER, offerBefore.contractId);
+  driver.run(1);
+  expectRejected(engine, retry, 'ERR_OFFER_NOT_AVAILABLE');
+  assert.deepEqual(economicState(engine), after);
 });
 
 test('acceptance is rejected when the buyer cannot fund the escrow', () => {

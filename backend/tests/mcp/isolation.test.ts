@@ -1,6 +1,6 @@
 /**
  * Cross-tenant regression contracts: private reads and engine-enforced writes
- * are asserted. Adjacent unfixed issues #3/#4/#7 remain explicitly skipped.
+ * are asserted. Adjacent unfixed issues #3/#7 remain explicitly skipped.
  */
 
 import assert from 'node:assert/strict';
@@ -209,9 +209,7 @@ describe('pending P0 defects adjacent to tenant isolation', () => {
     assert.deepEqual(data.quotes, []);
   });
 
-  test('an offer targeted at another buyer cannot be accepted by a third company', {
-    skip: 'pending: open P0 issue #4 — target_buyer_id is not validated on acceptance',
-  }, async () => {
+  test('an offer targeted at another buyer cannot be accepted by a third company', async () => {
     const author = makeGrant({ companyId: TENANT_A });
     const { gateway, engine } = createGatewayFixture([author]);
 
@@ -222,6 +220,14 @@ describe('pending P0 defects adjacent to tenant isolation', () => {
     engine.processTick();
     const offer = engine.getAllContracts()[0];
     assert.equal(offer.buyerCompanyId, TENANT_B);
+    const offerBefore = structuredClone(offer);
+    const companies = [TENANT_A, TENANT_B, 'comp_manuf_01', 'comp_manuf_02'];
+    const economy = () => companies.map((id) => {
+      const company = engine.getCompany(id)!;
+      return structuredClone({ credits: company.credits, inventory: company.inventory, reputation: company.reputation });
+    });
+    const economyBefore = economy();
+    const historyBefore = engine.getExecutionHistory().length;
 
     const accepted = engine.submitCommand({
       commandId: 'cmd_iso_targeted_accept',
@@ -234,7 +240,13 @@ describe('pending P0 defects adjacent to tenant isolation', () => {
     engine.processTick();
 
     assert.equal(accepted, true);
-    assert.equal(engine.getContract(offer.contractId)!.status, 'PENDING');
+    const result = engine.getExecutionHistory().at(-1)!;
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'ERR_OFFER_NOT_FOR_BUYER');
+    assert.equal(result.errorMessage, 'Only the designated buyer can accept this offer');
+    assert.deepEqual(engine.getContract(offer.contractId), offerBefore);
+    assert.deepEqual(economy(), economyBefore);
+    assert.equal(engine.getExecutionHistory().length, historyBefore + 1);
   });
 
   test('re-registering a grant invalidates its previous token', {
