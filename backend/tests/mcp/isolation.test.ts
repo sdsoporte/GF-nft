@@ -54,6 +54,41 @@ describe('isolation enforced today (write path)', () => {
     assert.equal(engine.getCompany(TENANT_B)!.lines[0].status, 'IDLE');
   });
 
+  test('a set_production_target on a busy line is engine-rejected and audited (issue #48)', async () => {
+    const grant = makeGrant({ resourceAllowlist: [LINE_A1] });
+    const { gateway, engine } = createGatewayFixture([grant]);
+
+    expectSuccess(
+      await gateway.invokeTool(grant.token, 'set_production_target', targetParams(LINE_A1, 'idem_busy_first'))
+    );
+    engine.processTick();
+    const line = engine.getCompany(TENANT_A)!.lines[0];
+    assert.ok(line.activeBatch, 'the first MCP command must start a batch');
+
+    // The gateway's per-line write cooldown must lapse before the re-target
+    // reaches the queue; the batch stays active while it does.
+    for (let tick = 0; tick < 6; tick += 1) {
+      engine.processTick();
+    }
+    assert.ok(line.activeBatch, 'the in-flight batch must still be running');
+
+    const auditBefore = gateway.getAuditLogs().length;
+    expectSuccess(
+      await gateway.invokeTool(grant.token, 'set_production_target', targetParams(LINE_A1, 'idem_busy_second'))
+    );
+    engine.processTick();
+
+    const last = engine.getExecutionHistory().at(-1)!;
+    assert.equal(last.success, false);
+    assert.equal(last.errorCode, 'ERR_LINE_BUSY');
+    // The in-flight batch survives the rejected re-target.
+    assert.equal(line.activeBatch!.recipeId, 'R1');
+    assert.equal(engine.getCompany(TENANT_B)!.lines[0].activeBatch, null);
+    // Exactly the new call was audited, attributed to the grant company.
+    assert.equal(gateway.getAuditLogs().length, auditBefore + 1);
+    assert.equal(gateway.getAuditLogs().at(-1)!.companyId, TENANT_A);
+  });
+
   test('a write command is attributed to the grant company, never to a payload field', async () => {
     const grant = makeGrant({ resourceAllowlist: [LINE_A1] });
     const { gateway, engine } = createGatewayFixture([grant]);

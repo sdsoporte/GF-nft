@@ -1105,6 +1105,20 @@ export class SimulatorEngine {
           };
         }
 
+        // Issue #48: an in-flight batch is authoritative work. Re-targeting a
+        // busy line must never overwrite it or deduct new inputs; the operator
+        // waits for completion or explicitly pauses the line first.
+        if (line.activeBatch) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_LINE_BUSY',
+            errorMessage: 'Line already has an active batch',
+          };
+        }
+
         const profile = getRecipeProfile(cmd.recipeId, company.industrialClass);
         const { energyPerTick, energyRemainder } = calculateEnergyPerTick(
           profile.energyCost,

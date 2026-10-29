@@ -43,6 +43,7 @@ Read that file before changing request or response shapes.
 | Redirects | Redirects are disabled (`max_redirects = 0`); a 3xx answer ends the session instead of replaying the bearer token. |
 | Request overlap | One `HTTPRequest` and an in-flight guard: polling and a production request can never overlap. |
 | Lost command status | A non-fatal status-read error clears the stale view and resumes state polling. The command remains unknown; production is never automatically retried. Start waits for a fresh server snapshot. |
+| Busy line | A line running a batch owns that work: the server rejects a second production request with `ERR_LINE_BUSY` instead of replacing the batch. The screen shows the rejection; it never retries automatically. |
 | Session identity | Closing or failing a session bumps a generation counter, and payloads from the old generation are discarded. |
 | Server authority | The client never sends a company id, tick, sequence number or batch count, and never mutates inventory. |
 
