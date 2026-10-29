@@ -32,6 +32,7 @@ import type { McpGateway } from './mcp/McpGateway.ts';
 import { createMcpRuntime, type McpRuntime } from './mcpRuntime.ts';
 import { GrantIssueError, type GrantIssueInput } from './grantService.ts';
 import { readFactoryConfig } from './config.ts';
+import { IDEMPOTENCY_KEY_REGEX } from './mcp/schemas.ts';
 
 /** Hard limit for request bodies. */
 export const MAX_REQUEST_BODY_BYTES = 8 * 1024;
@@ -302,11 +303,13 @@ async function handleOwnerRequest(
   const logout = path === '/v1/owner/sessions/current';
   const collection = path === '/v1/owner/grants';
   const item = /^\/v1\/owner\/grants\/([^/]+)$/.exec(path);
-  if (!login && !logout && !collection && !item) return false;
+  const publication = /^\/v1\/owner\/contracts\/([^/]+)\/publish$/.exec(path);
+  if (!login && !logout && !collection && !item && !publication) return false;
   const method = req.method ?? 'GET';
   const methodAllowed = login ? method === 'POST'
     : logout ? method === 'DELETE'
     : collection ? method === 'GET' || method === 'POST'
+    : publication ? method === 'POST'
     : method === 'GET' || method === 'DELETE';
   if (!methodAllowed) {
     await discardBody(req); sendError(res, ERRORS.methodNotAllowed); return true;
@@ -326,6 +329,46 @@ async function handleOwnerRequest(
   if (logout) {
     await discardBody(req);
     sendJson(res, 200, { revoked: owner.sessions.revoke(bearer) }); return true;
+  }
+  if (publication) {
+    const mediaType = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
+    if (mediaType !== 'application/json') {
+      await discardBody(req);
+      sendJson(res, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'The publication request must be application/json.' } });
+      return true;
+    }
+    const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
+    if (!body.ok) {
+      sendError(res, body.reason === 'too_large' ? ERRORS.requestTooLarge : invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson));
+      return true;
+    }
+    let input: unknown;
+    try { input = JSON.parse(body.text); }
+    catch { sendError(res, invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson)); return true; }
+    if (!isPlainObject(input) || Object.keys(input).length !== 1 ||
+      typeof input.idempotency_key !== 'string' || !IDEMPOTENCY_KEY_REGEX.test(input.idempotency_key)) {
+      sendJson(res, 400, { error: { code: 'ERR_INVALID_PAYLOAD', message: 'Invalid publication request.' } });
+      return true;
+    }
+    let contractId: string;
+    try { contractId = decodeURIComponent(publication[1]); }
+    catch { sendError(res, ERRORS.notFound); return true; }
+    const companyId = context.match.getServerCompany().companyId;
+    const contract = context.match.engine.getContract(contractId);
+    if (!contract || contract.sellerCompanyId !== companyId || contract.status !== 'DRAFT') {
+      sendError(res, ERRORS.notFound); return true;
+    }
+    const scheduledTick = context.match.engine.getCurrentTick() + 1;
+    const accepted = context.match.submitMcpCommand({
+      commandId: 'owner_publish', companyId, scheduledTick,
+      idempotencyKey: input.idempotency_key, type: 'PUBLISH_SUPPLY_OFFER', contractId,
+    });
+    if (!accepted) {
+      sendJson(res, 409, { error: { code: 'ERR_DUPLICATE_IDEMPOTENCY_KEY', message: 'idempotency_key duplicate' } });
+      return true;
+    }
+    sendJson(res, 202, { status: 'ENQUEUED_FOR_NEXT_TICK', scheduledTick, contractId });
+    return true;
   }
   if (collection && method === 'GET') {
     await discardBody(req); sendJson(res, 200, { grants: owner.grants.list() }); return true;

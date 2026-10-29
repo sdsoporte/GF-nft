@@ -46,6 +46,7 @@ export const ItemIdEnum = z.enum([
 ]);
 
 export const ContractStatusEnum = z.enum([
+  'DRAFT',
   'PENDING',
   'ACTIVE',
   'FULFILLED',
