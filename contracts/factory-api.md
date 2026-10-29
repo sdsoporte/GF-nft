@@ -76,6 +76,8 @@ Requires `Content-Type: application/json` and exactly this request shape:
 
 `200` with `commandId` and `status`: `queued`, `executed` or `rejected`. A final result includes `executedAtTick`; a rejection also includes the engine's `errorCode`. A queued acknowledgement is not a business-success notification. Unknown IDs return `404 NOT_FOUND` without exposing any global history.
 
+A line running a batch owns that work: a second production request targeting it is rejected with `errorCode: "ERR_LINE_BUSY"` ("Line already has an active batch") before any input deduction. Wait for the batch to finish or pause the line first; a paused line without an active batch accepts a new target as before.
+
 ## Errors
 
 ```json

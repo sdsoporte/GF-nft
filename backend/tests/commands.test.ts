@@ -78,10 +78,10 @@ test('one R1 batch consumes raw ore and produces ingots on server ticks', async 
   });
 });
 
-test('an engine business rejection becomes a rejected command status', async () => {
+test('burst commands on one line execute once and reject the rest as busy (issue #48)', async () => {
   await withTestServer(async (app) => {
-    // 21 batches need 210 RAW_ORE but only 200 are available when all commands
-    // execute in the same tick, so the last acknowledgement is rejected.
+    // 21 commands are queued for the same tick on the same line. Only the
+    // first may start a batch; the rest are rejected before any deduction.
     const commandIds: string[] = [];
     for (let index = 0; index < 21; index += 1) {
       commandIds.push(await startBatch(app, `burst-${index}`));
@@ -93,17 +93,20 @@ test('an engine business rejection becomes a rejected command status', async () 
     const first = await readCommand(app, commandIds[0]);
     assert.deepEqual(first.json, { commandId: commandIds[0], status: 'executed', executedAtTick: 1 });
 
-    const last = await readCommand(app, commandIds[20]);
-    assert.equal(last.status, 200);
-    assert.deepEqual(last.json, {
-      commandId: commandIds[20],
+    const second = await readCommand(app, commandIds[1]);
+    assert.equal(second.status, 200);
+    assert.deepEqual(second.json, {
+      commandId: commandIds[1],
       status: 'rejected',
       executedAtTick: 1,
-      errorCode: 'ERR_INSUFFICIENT_INVENTORY',
+      errorCode: 'ERR_LINE_BUSY',
     });
 
     const state = await readState(app);
-    assert.equal(state.company.inventory.RAW_ORE.available, 0);
+    assert.equal(state.company.lines[0].status, 'RUNNING');
+    assert.equal(state.company.lines[0].activeBatch.recipeId, 'R1');
+    // Only the first command deducted its 10 RAW_ORE inputs.
+    assert.equal(state.company.inventory.RAW_ORE.available, 190);
     assert.equal(state.company.inventory.IRON_INGOT.available, 0);
   });
 });
@@ -121,5 +124,38 @@ test('a rejected command status stays rejected on later ticks', async () => {
     app.clock.advance(5);
     const stillRejected = await readCommand(app, commandIds[20]);
     assert.deepEqual(stillRejected.json, rejected.json);
+  });
+});
+
+test('a second production command on a busy line is rejected and keeps the in-flight batch (issue #48)', async () => {
+  await withTestServer(async (app) => {
+    const first = await startBatch(app, 'busy-first');
+    app.clock.advance(1);
+    assert.deepEqual((await readCommand(app, first)).json, {
+      commandId: first, status: 'executed', executedAtTick: 1,
+    });
+    const busyState = await readState(app);
+    assert.equal(busyState.company.lines[0].status, 'RUNNING');
+    assert.equal(busyState.company.inventory.RAW_ORE.available, 190);
+
+    const second = await startBatch(app, 'busy-second');
+    app.clock.advance(1);
+
+    const rejection = await readCommand(app, second);
+    assert.equal(rejection.status, 200);
+    assert.deepEqual(rejection.json, {
+      commandId: second,
+      status: 'rejected',
+      executedAtTick: 2,
+      errorCode: 'ERR_LINE_BUSY',
+    });
+
+    const state = await readState(app);
+    assert.equal(state.company.lines[0].status, 'RUNNING');
+    assert.equal(state.company.lines[0].currentRecipeId, 'R1');
+    assert.equal(state.company.lines[0].activeBatch.recipeId, 'R1');
+    assert.equal(state.company.lines[0].activeBatch.completedBatches, 0);
+    // The rejected request never deducted its inputs.
+    assert.equal(state.company.inventory.RAW_ORE.available, 190);
   });
 });

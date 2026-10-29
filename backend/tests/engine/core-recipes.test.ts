@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { IndustrialClass, ItemId, RecipeId } from '../../src/domain/types.ts';
+import type { EnqueueCommandInput, IndustrialClass, ItemId, RecipeId } from '../../src/domain/types.ts';
 import {
   MANUFACTURING_COMPANY,
   METAL_COMPANY,
@@ -334,6 +334,57 @@ test('a production target for an unknown line is rejected', () => {
 
   assertRejected(lastExecution(engine), 'ERR_LINE_NOT_FOUND');
   assert.equal(company.inventory.RAW_ORE.available, 10);
+});
+
+test('a second production target on a line with an active batch is rejected without discarding work (issue #48)', () => {
+  const engine = createEngine();
+  const company = getCompany(engine, METAL_COMPANY);
+  const line = getLineByIndex(engine, METAL_COMPANY, 0);
+  setInventory(company, { RAW_ORE: 25 });
+  setGrid(company, company.maxEnergyStorage, 0);
+
+  startProduction(engine, 'first_batch', METAL_COMPANY, line.lineId, 'R1', 1);
+  runTicks(engine, 1);
+  assertSucceeded(lastExecution(engine));
+  const batch = structuredClone(activeBatchOf(line));
+  const inventoryAfterFirst = company.inventory.RAW_ORE.available;
+
+  startProduction(engine, 'second_batch', METAL_COMPANY, line.lineId, 'R1', 1);
+  runTicks(engine, 1);
+
+  const rejection = lastExecution(engine);
+  assertRejected(rejection, 'ERR_LINE_BUSY');
+  assert.equal(rejection.errorMessage, 'Line already has an active batch');
+  // The rejected target never deducted the second batch's inputs.
+  assert.equal(company.inventory.RAW_ORE.available, inventoryAfterFirst);
+  // The in-flight batch keeps its identity and only advances its own progress.
+  assert.equal(activeBatchOf(line).recipeId, batch.recipeId);
+  assert.equal(activeBatchOf(line).targetBatches, batch.targetBatches);
+  assert.equal(activeBatchOf(line).completedBatches, batch.completedBatches);
+  assert.equal(activeBatchOf(line).progressTicks, batch.progressTicks + 1);
+  assert.equal(line.status, 'RUNNING');
+
+  // Exact retries are deduplicated by idempotency and never re-execute.
+  assert.equal(engine.submitCommand({
+    type: 'SET_PRODUCTION_TARGET',
+    companyId: METAL_COMPANY,
+    lineId: line.lineId,
+    recipeId: 'R1',
+    targetBatches: 1,
+    commandId: 'cmd_first_batch_retry',
+    idempotencyKey: 'idem_first_batch',
+    scheduledTick: engine.getCurrentTick() + 1,
+  } as EnqueueCommandInput), false);
+  assert.equal(engine.submitCommand({
+    type: 'SET_PRODUCTION_TARGET',
+    companyId: METAL_COMPANY,
+    lineId: line.lineId,
+    recipeId: 'R1',
+    targetBatches: 1,
+    commandId: 'cmd_second_batch_retry',
+    idempotencyKey: 'idem_second_batch',
+    scheduledTick: engine.getCurrentTick() + 1,
+  } as EnqueueCommandInput), false);
 });
 
 test('a production target for an unknown company is rejected', () => {
