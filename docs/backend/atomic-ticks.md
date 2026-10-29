@@ -7,7 +7,8 @@ original error. A later failed tick does not undo earlier committed ticks.
 
 The checkpoint includes the clock, PRNG state, actual contract counter, companies
 and their inventory/lines, contracts, global project, queue, permanent idempotency
-keys, queue sequence and execution history. Restore reuses `hydrate` and
+keys, queue sequence, execution history and the complete credit opening/movement
+archive. Restore reuses `hydrate` and
 `CommandQueue.restore`; it does not replay commands. Checkpoints are in-process
 handles, not new fields in `SimulationSnapshot` or the frozen HTTP/MCP protocol.
 
@@ -17,8 +18,12 @@ same tick without a second escrow debit or a skipped contract identifier. Existi
 successful production, priority, pause/resume, expansion and global-project commands
 keep their engine behavior.
 
-This unit does not add a monetary journal or repair old balances. Future journal
-state must join the checkpoint before its producing game flows are integrated.
+Real economic movements now join the tick transaction with company/contract
+snapshots, history and queue removal. The journal sequence cursor advances only
+after SQL succeeds. No old balance is repaired: legacy state opens an observed
+CUTOVER, while new matches commit COMPLETE coverage at tick 0.
+The failure seam observes actual producer input unchanged; it does not synthesize
+fixture movements. A retry keeps identical event keys, sequence and amounts.
 
 ## Verification
 

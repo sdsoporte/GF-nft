@@ -60,7 +60,7 @@ const EXPECTED_KIND: Readonly<Record<number, CoverageKind>> = {
   2: 'green',
   3: 'green',
   4: 'green',
-  5: 'pending',
+  5: 'green',
   6: 'green',
   7: 'green',
 };
@@ -158,22 +158,22 @@ const MATRIX: readonly MatrixEntry[] = [
     issue: 5,
     file: 'backend/tests/engine/contracts-expiration.test.ts',
     titleFragment: 'a partial default pays the seller for the units it already delivered',
-    kind: 'pending',
-    note: 'issue #5 open: default settlement never pays the seller for the units already delivered',
+    kind: 'green',
+    note: 'local engine pays delivered value net of the declared 2% fee, including partial default',
   },
   {
     issue: 5,
     file: 'backend/tests/engine/contracts-expiration.test.ts',
     titleFragment: 'a partial default conserves total credits between both companies',
-    kind: 'pending',
-    note: 'issue #5 open: credit conservation breaks on partial delivery plus settlement',
+    kind: 'green',
+    note: 'local engine asserts available/held balances plus actual fee sink conservation',
   },
   {
     issue: 5,
     file: 'backend/tests/property/credits.test.ts',
     titleFragment: 'partial-delivery default pays the seller for delivered units and conserves total credits',
-    kind: 'pending',
-    note: 'issue #5 open: `test.todo` for the seeded credit ledger, flipped to an asserted test with the fix',
+    kind: 'green',
+    note: 'seeded partial default now asserts seller payment and declared fee without skipped coverage',
   },
 
   // ------------------------------------------------------------------ issue #6

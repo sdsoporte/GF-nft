@@ -14,6 +14,10 @@
  */
 
 import type { CompanyState, ItemId } from '../../domain/types.ts';
+import type {
+  CreditLedgerMovement,
+  CreditLedgerOpening,
+} from '../../domain/creditLedger.ts';
 
 export interface CompanyTimestamps {
   readonly createdAtUtc?: string;
@@ -189,4 +193,30 @@ export class InsufficientStockError extends Error {
     );
     this.name = 'InsufficientStockError';
   }
+}
+
+// --- credit journal (S4/S14) ------------------------------------------------
+// The append-only monetary journal. Records are the domain types plus the
+// persistence timestamp, exactly like every other row type here: nothing is
+// stored that cannot be read back. `companies.credits` stays the authoritative
+// spendable balance; the journal is evidence, not a second balance store.
+
+/** Opening write input; `openedAtUtc` is optional (boot/operator fills it). */
+export interface CreditJournalOpeningWrite extends CreditLedgerOpening {
+  readonly openedAtUtc?: string;
+}
+
+/** An immutable opening as read back. */
+export interface CreditJournalOpeningRecord extends CreditLedgerOpening {
+  readonly openedAtUtc: string;
+}
+
+/** Movement write input; `recordedAtUtc` is optional (the store fills it). */
+export interface CreditJournalMovementWrite extends CreditLedgerMovement {
+  readonly recordedAtUtc?: string;
+}
+
+/** One append-only movement as read back. */
+export interface CreditJournalMovementRecord extends CreditLedgerMovement {
+  readonly recordedAtUtc: string;
 }
