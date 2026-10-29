@@ -459,6 +459,7 @@ export class McpGateway {
           .filter(
             (c) =>
               (c.sellerCompanyId === grant.companyId || c.buyerCompanyId === grant.companyId) &&
+              (c.status !== 'DRAFT' || c.sellerCompanyId === grant.companyId) &&
               (!parsed.status || c.status === parsed.status)
           )
           .map((c) => ({
@@ -718,10 +719,10 @@ export class McpGateway {
       case 'draft_supply_offer': {
         const p = DraftSupplyOfferSchema.parse(rawParams);
 
-        // Max 5 open drafts enforcement
+        // Admission hint; the engine also enforces the cap across queued commands.
         const activeDrafts = this.engine
           .getAllContracts()
-          .filter((c) => c.sellerCompanyId === grant.companyId && c.status === 'PENDING').length;
+          .filter((c) => c.sellerCompanyId === grant.companyId && c.status === 'DRAFT').length;
 
         if (activeDrafts >= 5) {
           return this.recordFailure(
@@ -741,7 +742,7 @@ export class McpGateway {
           companyId: grant.companyId,
           scheduledTick: nextTick,
           idempotencyKey: p.idempotency_key,
-          type: 'CREATE_SUPPLY_OFFER',
+          type: 'DRAFT_SUPPLY_OFFER',
           targetBuyerId: p.target_buyer_id,
           itemId: p.item_id as ItemId,
           quantity: p.quantity,

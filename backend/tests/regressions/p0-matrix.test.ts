@@ -58,9 +58,9 @@ interface MatrixEntry {
 const EXPECTED_KIND: Readonly<Record<number, CoverageKind>> = {
   1: 'green',
   2: 'green',
-  3: 'pending',
-  4: 'pending',
-  5: 'pending',
+  3: 'green',
+  4: 'green',
+  5: 'green',
   6: 'green',
   7: 'green',
 };
@@ -126,8 +126,8 @@ const MATRIX: readonly MatrixEntry[] = [
     issue: 3,
     file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'drafts are not published to the market before an explicit publish step',
-    kind: 'pending',
-    note: 'issue #3 open: draft_supply_offer creates a PENDING market contract immediately, with no publish step',
+    kind: 'green',
+    note: 'issue #3 locally fixed: MCP creates private nonbinding DRAFTs; only an authenticated owner can publish',
   },
 
   // ------------------------------------------------------------------ issue #4
@@ -135,22 +135,22 @@ const MATRIX: readonly MatrixEntry[] = [
     issue: 4,
     file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'an offer targeted at another buyer cannot be accepted by a third company',
-    kind: 'pending',
-    note: 'issue #4 open: target_buyer_id is not validated on acceptance through the MCP path',
+    kind: 'green',
+    note: 'issue #4 locally fixed: MCP-origin targeted offers reject third-company acceptance without economic mutation',
   },
   {
     issue: 4,
     file: 'backend/tests/engine/contracts-lifecycle.test.ts',
     titleFragment: 'a targeted offer cannot be accepted by a non-targeted company',
-    kind: 'pending',
-    note: 'issue #4 open: ACCEPT_SUPPLY_OFFER overwrites buyerCompanyId without validating targetBuyerId',
+    kind: 'green',
+    note: 'issue #4 locally fixed: acceptance preserves the designated buyer and signed offer terms',
   },
   {
     issue: 4,
     file: 'backend/tests/engine/contracts-lifecycle.test.ts',
     titleFragment: 'a seller cannot accept its own offer',
-    kind: 'pending',
-    note: 'issue #4 open: self-dealing is not policed, the seller can accept its own offer',
+    kind: 'green',
+    note: 'issue #4 locally fixed: sellers cannot accept their own offers or lock self-dealing escrow',
   },
 
   // ------------------------------------------------------------------ issue #5
@@ -158,22 +158,22 @@ const MATRIX: readonly MatrixEntry[] = [
     issue: 5,
     file: 'backend/tests/engine/contracts-expiration.test.ts',
     titleFragment: 'a partial default pays the seller for the units it already delivered',
-    kind: 'pending',
-    note: 'issue #5 open: default settlement never pays the seller for the units already delivered',
+    kind: 'green',
+    note: 'local engine pays delivered value net of the declared 2% fee, including partial default',
   },
   {
     issue: 5,
     file: 'backend/tests/engine/contracts-expiration.test.ts',
     titleFragment: 'a partial default conserves total credits between both companies',
-    kind: 'pending',
-    note: 'issue #5 open: credit conservation breaks on partial delivery plus settlement',
+    kind: 'green',
+    note: 'local engine asserts available/held balances plus actual fee sink conservation',
   },
   {
     issue: 5,
     file: 'backend/tests/property/credits.test.ts',
     titleFragment: 'partial-delivery default pays the seller for delivered units and conserves total credits',
-    kind: 'pending',
-    note: 'issue #5 open: `test.todo` for the seeded credit ledger, flipped to an asserted test with the fix',
+    kind: 'green',
+    note: 'seeded partial default now asserts seller payment and declared fee without skipped coverage',
   },
 
   // ------------------------------------------------------------------ issue #6

@@ -215,7 +215,7 @@ test('migration 5 stores grant secrets under token_hash on a fresh database', ()
     try {
       const run = migrate(database);
       assert.deepEqual(run.appliedVersions, MIGRATIONS.map((migration) => migration.version));
-      assert.equal(run.currentVersion, 5);
+      assert.equal(run.currentVersion, MIGRATIONS.at(-1)!.version);
 
       const columns = listColumns(database, 'mcp_grants');
       assert.equal(columns.includes('token_hash'), true);
@@ -250,8 +250,8 @@ test('migration 5 retires legacy grants, scrubs secrets and preserves identity a
       const grantsBefore = grantRows(database);
 
       const run = migrate(database);
-      assert.deepEqual(run.appliedVersions, [5]);
-      assert.equal(getCurrentVersion(database), 5);
+      assert.deepEqual(run.appliedVersions, MIGRATIONS.filter(migration => migration.version > 4).map(migration => migration.version));
+      assert.equal(getCurrentVersion(database), MIGRATIONS.at(-1)!.version);
 
       const columns = listColumns(database, 'mcp_grants');
       assert.equal(columns.includes('token_hash'), true);
@@ -331,7 +331,7 @@ test('migration 5 is durable across close and reopen and never re-runs', () => {
     try {
       const run = migrate(second);
       assert.deepEqual(run.appliedVersions, []);
-      assert.equal(getCurrentVersion(second), 5);
+      assert.equal(getCurrentVersion(second), MIGRATIONS.at(-1)!.version);
       assert.deepEqual(grantRows(second), retiredRows);
       assert.equal(listColumns(second, 'mcp_grants').includes('token'), false);
     } finally {
