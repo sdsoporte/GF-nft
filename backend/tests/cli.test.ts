@@ -144,7 +144,29 @@ test('--help prints usage and never starts a server', async () => {
   assert.equal(exitCode, 0);
   assert.equal(started, false);
   assert.equal(stderr.length, 0);
-  assert.equal(stdout.join('\n').includes('GF_API_TOKEN'), true);
+  const help = stdout.join('\n');
+  assert.equal(help.includes('GF_API_TOKEN'), true);
+
+  // Migration 7 copy must match the shipped runtime (S4/S14): the migration
+  // itself writes nothing, while the running engine settles and records.
+  for (const expected of [
+    'Migration 7',
+    'empty tables',
+    'changes no credits',
+    'net of the 2% market fee',
+    'COMPLETE from tick 0',
+    'CUTOVER',
+    'unverified',
+    'companies.credits',
+    'spendable balance',
+  ]) {
+    assert.equal(help.includes(expected), true, `help text is missing ${expected}`);
+  }
+  assert.equal(
+    help.includes('does not settle contracts yet'),
+    false,
+    'help text still claims the engine does not settle contracts',
+  );
 });
 
 test('a valid environment starts the server and never logs the token', async () => {

@@ -79,7 +79,10 @@ Existing insufficient-funds and insufficient-collateral results are unchanged.
   shortfall; existing pause, reputation and zero-line behavior is unchanged.
 - Checkpoints include journal state. A restored state without an archive starts
   observed CUTOVER coverage and never fabricates earlier closed-contract payouts.
-  Durable automatic match binding is the next integration cut, not yet claimed.
+  FactoryMatch binds the real match ID, commits a new COMPLETE opening at tick 0,
+  and rehydrates the persisted opening/movements on restart. Legacy first adoption
+  observes only current available/ACTIVE-held balances and marks prior history
+  unverified; closed contracts are never paid again.
 - DRAFT/PENDING cancellation has no economic movement. ACTIVE cancellation and
   MCP financial tools remain unsupported.
 

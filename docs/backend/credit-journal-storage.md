@@ -4,8 +4,9 @@ Migration `007_credit_journal` adds the durable storage an auditable credit
 ledger needs. It is a **storage and audit foundation**: it records an immutable
 opening and append-only movements, and it changes no balance. The engine now
 produces in-memory movement evidence and settles delivered value with a 2% fee
-([rules](supply-contracts.md)). Automatic durable match binding and boot coverage
-remain the next integration cut; the repository itself runs no game flow.
+([rules](supply-contracts.md)). FactoryMatch binds real match identity, persists
+new tick movements atomically and restores the same evidence on restart.
+The repository itself never changes spendable balances.
 
 ## What the tables mean
 
@@ -48,8 +49,15 @@ movement.
 - Existing companies, contracts and match rows keep their values; no movement,
   opening or balance row is written by the upgrade. There is no back-pay, no
   opening guess and no money change on a legacy database.
-- A legacy match records a `CUTOVER` opening with the balances observed at that
-  tick. Prior history is preserved and audited from that cutover only.
+- First adoption without a journal records a `CUTOVER` at the observed engine
+  tick with current available and ACTIVE escrow/collateral balances. Core rows
+  and closed contracts are unchanged; prior history and prior sinks are unverified,
+  never fabricated or paid again.
+- New matches commit their initial snapshot and COMPLETE opening at tick 0 in
+  one transaction. Existing openings/movements are restored, never replaced.
+- The older metadata-only/no-snapshot degraded recovery stays unchanged: old
+  queued commands are not replayed. Its observed engine cut is CUTOVER, not a
+  claim of reconstructing the unknown earlier world or its balances.
 - Reopening an already-upgraded database applies nothing again. A failed
   application rolls back the new tables and the version record together.
 - Do not run an older build against a version-7 database; the runner refuses a
@@ -65,7 +73,8 @@ and reject a reused event key. `list` strictly decodes records in journal order.
 `CreditJournalError` carries `code` and a `CODE: detail` message: unknown or
 mismatched match, missing/repeated opening, future/before-opening tick, sequence
 out of order, or duplicated event key. Malformed records use
-`CreditLedgerValidationError`. No API mutates spendable credits. No game flow produces a live journal yet.
+`CreditLedgerValidationError`. These repository APIs never mutate spendable
+credits; the authoritative engine is the producer.
 
 ## Atomic tick composition
 
@@ -78,10 +87,11 @@ Movements require this batch's opening or an earlier committed opening. Even an
 explicit empty movement array requires an opening; omit both arguments to keep
 the old behavior exactly. No implicit opening or backfill is created.
 
-The caller still owns the in-memory checkpoint and actual credits. The combined
-seam test supplies records at this public boundary, forces a later history write
-to fail, and checks A's engine restoration plus B's database rollback and retry.
-It is not a runtime journal producer or a settlement implementation.
+The match owns the in-memory checkpoint and actual credits. It appends only
+movements after its last committed journal sequence, inside the same transaction
+as its engine snapshot. That cursor advances only after SQL succeeds. The seam
+test observes real producer arguments without replacing them, forces history to
+fail after both journal records, and verifies full rollback and identical retry.
 
 ## Verify on disposable state
 
@@ -89,7 +99,8 @@ It is not a runtime journal producer or a settlement implementation.
 bun test backend/tests/persistence/credit-journal.test.ts \
   backend/tests/persistence/draft-status-migration.test.ts \
   backend/tests/persistence/repos-atomicity.test.ts \
-  backend/tests/persistence/credit-journal-tick-seam.test.ts
+  backend/tests/persistence/credit-journal-tick-seam.test.ts \
+  backend/tests/persistence/credit-ledger-runtime.test.ts
 ```
 
 The tests use fresh or disposable databases and public APIs only: fresh version
