@@ -58,7 +58,7 @@ interface MatrixEntry {
 const EXPECTED_KIND: Readonly<Record<number, CoverageKind>> = {
   1: 'green',
   2: 'green',
-  3: 'pending',
+  3: 'green',
   4: 'green',
   5: 'pending',
   6: 'green',
@@ -126,8 +126,8 @@ const MATRIX: readonly MatrixEntry[] = [
     issue: 3,
     file: 'backend/tests/mcp/isolation.test.ts',
     titleFragment: 'drafts are not published to the market before an explicit publish step',
-    kind: 'pending',
-    note: 'issue #3 open: draft_supply_offer creates a PENDING market contract immediately, with no publish step',
+    kind: 'green',
+    note: 'issue #3 locally fixed: MCP creates private nonbinding DRAFTs; only an authenticated owner can publish',
   },
 
   // ------------------------------------------------------------------ issue #4

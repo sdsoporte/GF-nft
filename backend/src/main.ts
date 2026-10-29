@@ -60,10 +60,13 @@ Owner endpoints (only when ${OWNER_ID_ENV_VAR} is configured):
   POST   /v1/owner/grants            Session bearer -> one-time token delivery.
   GET    /v1/owner/grants/<id>       Session bearer -> safe metadata only.
   DELETE /v1/owner/grants/<id>       Session bearer -> immediate revocation.
+  POST   /v1/owner/contracts/<id>/publish
+                                   Session bearer -> queue publication of an owned DRAFT.
 
 External MCP transport/catalog remains separate (#9); embedding callers use the
 server-owned gateway, whose commands are persisted before acknowledgement.
 Migration 5 retires all legacy grants: plan reissuance before any deployment.
+Migration 6 adds durable DRAFT contracts; MCP cannot publish or accept offers.
 
 The server owns the clock and advances one tick per second. With
 ${SQLITE_PATH_ENV_VAR} set, acknowledged requests and command results survive a

@@ -1075,7 +1075,9 @@ export class SimulatorEngine {
         };
       }
 
-      case 'CREATE_SUPPLY_OFFER': {
+      case 'CREATE_SUPPLY_OFFER':
+      case 'DRAFT_SUPPLY_OFFER': {
+        const isDraft = cmd.type === 'DRAFT_SUPPLY_OFFER';
         assertSafeInteger(cmd.quantity, 'quantity');
         assertSafeInteger(cmd.unitPriceCredits, 'unitPriceCredits');
         assertSafeInteger(cmd.deadlineTicks, 'deadlineTicks');
@@ -1091,10 +1093,22 @@ export class SimulatorEngine {
           };
         }
 
+        if (isDraft && this.getAllContracts().filter(contract =>
+          contract.sellerCompanyId === company.companyId && contract.status === 'DRAFT'
+        ).length >= 5) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_MAX_DRAFTS_REACHED',
+            errorMessage: 'Maximum 5 open draft offers per company',
+          };
+        }
         const totalValue = cmd.quantity * cmd.unitPriceCredits;
         const collateralSeller = Math.floor((totalValue * 20) / 100); // 20% collateral
 
-        if (company.credits < collateralSeller) {
+        if (!isDraft && company.credits < collateralSeller) {
           return {
             commandId: cmd.commandId,
             idempotencyKey: cmd.idempotencyKey,
@@ -1119,11 +1133,52 @@ export class SimulatorEngine {
           createdAtTick: this.currentTick,
           deadlineTick: cmd.deadlineTicks,
           penaltyPerMissingUnit: 10,
-          status: 'PENDING',
+          status: isDraft ? 'DRAFT' : 'PENDING',
         };
 
         this.contracts.set(contractId, newContract);
 
+        return {
+          commandId: cmd.commandId,
+          idempotencyKey: cmd.idempotencyKey,
+          executedAtTick: this.currentTick,
+          success: true,
+        };
+      }
+
+      case 'PUBLISH_SUPPLY_OFFER': {
+        const contract = this.contracts.get(cmd.contractId);
+        if (!contract || contract.status !== 'DRAFT' || contract.sellerCompanyId !== company.companyId) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_CANNOT_PUBLISH',
+            errorMessage: 'Only draft offers owned by the company can be published',
+          };
+        }
+        if (contract.deadlineTick <= this.currentTick) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_INVALID_OFFER_PARAMS',
+            errorMessage: 'Offer deadline must be in the future',
+          };
+        }
+        if (company.credits < contract.collateralSellerCredits) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_INSUFFICIENT_COLLATERAL',
+            errorMessage: `Seller requires ${contract.collateralSellerCredits} CREDITS collateral (20%)`,
+          };
+        }
+        contract.status = 'PENDING';
         return {
           commandId: cmd.commandId,
           idempotencyKey: cmd.idempotencyKey,
@@ -1225,14 +1280,15 @@ export class SimulatorEngine {
 
       case 'CANCEL_PENDING_OFFER': {
         const contract = this.contracts.get(cmd.contractId);
-        if (!contract || contract.sellerCompanyId !== company.companyId || contract.status !== 'PENDING') {
+        if (!contract || contract.sellerCompanyId !== company.companyId ||
+          (contract.status !== 'DRAFT' && contract.status !== 'PENDING')) {
           return {
             commandId: cmd.commandId,
             idempotencyKey: cmd.idempotencyKey,
             executedAtTick: this.currentTick,
             success: false,
             errorCode: 'ERR_CANNOT_CANCEL',
-            errorMessage: 'Only pending offers owned by the company can be cancelled',
+            errorMessage: 'Only draft or pending offers owned by the company can be cancelled',
           };
         }
         contract.status = 'CANCELLED';
