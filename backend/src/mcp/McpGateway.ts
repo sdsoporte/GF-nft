@@ -539,7 +539,7 @@ export class McpGateway {
       case 'set_production_target': {
         const p = SetProductionTargetSchema.parse(rawParams);
         this.verifyResourceAllowlist(grant, p.line_id);
-        this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.checkLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick, p.idempotency_key);
 
         const enqueued = this.submitCommand({
           commandId: `mcp_target_${Date.now()}`,
@@ -565,7 +565,7 @@ export class McpGateway {
           );
         }
 
-        this.updateLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.updateLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick);
         return this.recordSuccess(startTime, currentTick, grant, tool, payloadHash, {
           status: 'ENQUEUED_FOR_NEXT_TICK',
           scheduled_tick: nextTick,
@@ -578,7 +578,7 @@ export class McpGateway {
       case 'set_line_priority': {
         const p = SetLinePrioritySchema.parse(rawParams);
         this.verifyResourceAllowlist(grant, p.line_id);
-        this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.checkLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick, p.idempotency_key);
 
         const enqueued = this.submitCommand({
           commandId: `mcp_prio_${Date.now()}`,
@@ -603,7 +603,7 @@ export class McpGateway {
           );
         }
 
-        this.updateLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.updateLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick);
         return this.recordSuccess(startTime, currentTick, grant, tool, payloadHash, {
           status: 'ENQUEUED_FOR_NEXT_TICK',
           scheduled_tick: nextTick,
@@ -615,7 +615,7 @@ export class McpGateway {
       case 'pause_production_line': {
         const p = PauseProductionLineSchema.parse(rawParams);
         this.verifyResourceAllowlist(grant, p.line_id);
-        this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.checkLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick, p.idempotency_key);
 
         const enqueued = this.submitCommand({
           commandId: `mcp_pause_${Date.now()}`,
@@ -639,7 +639,7 @@ export class McpGateway {
           );
         }
 
-        this.updateLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.updateLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick);
         return this.recordSuccess(startTime, currentTick, grant, tool, payloadHash, {
           status: 'ENQUEUED_FOR_NEXT_TICK',
           scheduled_tick: nextTick,
@@ -650,7 +650,7 @@ export class McpGateway {
       case 'resume_production_line': {
         const p = ResumeProductionLineSchema.parse(rawParams);
         this.verifyResourceAllowlist(grant, p.line_id);
-        this.checkLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.checkLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick, p.idempotency_key);
 
         const enqueued = this.submitCommand({
           commandId: `mcp_resume_${Date.now()}`,
@@ -674,7 +674,7 @@ export class McpGateway {
           );
         }
 
-        this.updateLineCooldown(grant.companyId, p.line_id, tool, currentTick);
+        this.updateLineCooldown(grant, grant.companyId, p.line_id, tool, currentTick);
         return this.recordSuccess(startTime, currentTick, grant, tool, payloadHash, {
           status: 'ENQUEUED_FOR_NEXT_TICK',
           scheduled_tick: nextTick,
@@ -830,8 +830,15 @@ export class McpGateway {
   private checkRateLimits(grant: McpGrant, isWriteTool: boolean): string | null {
     const now = this.options.now?.() ?? Date.now();
     const oneMinuteAgo = now - 60000;
+    const store = this.options.policyStore;
 
     if (!isWriteTool) {
+      // Issue #15: the durable store is authoritative when present, so the
+      // window count survives restarts and holds across instances.
+      const recentCount = store ? store.readCountSince(grant.grantId, oneMinuteAgo) : undefined;
+      if (recentCount !== undefined && recentCount >= grant.quotas.maxReadPerMinute) {
+        return `Read rate limit exceeded (${grant.quotas.maxReadPerMinute}/min)`;
+      }
       let timestamps = this.readTimestamps.get(grant.grantId);
       if (!timestamps) {
         timestamps = [];
@@ -844,8 +851,28 @@ export class McpGateway {
       }
       recent.push(now);
       this.readTimestamps.set(grant.grantId, recent);
+      store?.record({ grantId: grant.grantId, kind: 'read', atUtcMs: now });
       return null;
     } else {
+      if (store) {
+        // Issue #15 durable path: counts are queried at check time, so a
+        // restart or a second instance sharing the database cannot evade them.
+        if (store.writeCountSince(grant.grantId, oneMinuteAgo) >= grant.quotas.maxWritePerMinute) {
+          return `Write rate limit exceeded (${grant.quotas.maxWritePerMinute}/min)`;
+        }
+        const durableMatchCount = store.matchWriteCount(grant.grantId, this.authorizedMatchId ?? '') + 1;
+        if (durableMatchCount > grant.quotas.maxWritePerMatch) {
+          return `Match write quota exceeded (${grant.quotas.maxWritePerMatch}/match)`;
+        }
+        store.record({
+          grantId: grant.grantId,
+          kind: 'write',
+          atUtcMs: now,
+          matchId: this.authorizedMatchId,
+        });
+        this.matchWriteCounts.set(grant.grantId, durableMatchCount);
+        return null;
+      }
       let timestamps = this.writeTimestamps.get(grant.grantId);
       if (!timestamps) {
         timestamps = [];
@@ -856,27 +883,37 @@ export class McpGateway {
         return `Write rate limit exceeded (${grant.quotas.maxWritePerMinute}/min)`;
       }
 
-      const matchCount = (this.matchWriteCounts.get(grant.grantId) ?? 0) + 1;
-      if (matchCount > grant.quotas.maxWritePerMatch) {
+      const fallbackMatchCount = (this.matchWriteCounts.get(grant.grantId) ?? 0) + 1;
+      if (fallbackMatchCount > grant.quotas.maxWritePerMatch) {
         return `Match write quota exceeded (${grant.quotas.maxWritePerMatch}/match)`;
       }
 
       recent.push(now);
       this.writeTimestamps.set(grant.grantId, recent);
-      this.matchWriteCounts.set(grant.grantId, matchCount);
+      this.matchWriteCounts.set(grant.grantId, fallbackMatchCount);
       return null;
     }
   }
 
   private checkLineCooldown(
+    grant: McpGrant,
     companyId: string,
     lineId: string,
     tool: string,
-    currentTick: number
+    currentTick: number,
+    idempotencyKey: string
   ): void {
+    // Issue #15: an exact retry of a known key must report its idempotent
+    // outcome (ERR_DUPLICATE), not a cooldown denial; distinct keys still
+    // respect the cooldown.
+    if (this.engine.getCommandQueue().isIdempotencyKeyUsed(idempotencyKey)) return;
     const cooldownReq = LINE_COOLDOWNS_TICKS[tool] ?? 3;
     const key = `${companyId}:${lineId}:${tool}`;
-    const lastTick = this.lineCooldowns.get(key);
+    // Issue #15: consult the durable store when present so a restart or a
+    // second instance sharing the database cannot evade the cooldown.
+    const lastTick = this.options.policyStore
+      ? this.options.policyStore.lastLineWriteTick(companyId, lineId, tool)
+      : this.lineCooldowns.get(key);
     if (lastTick !== undefined) {
       const elapsed = currentTick - lastTick;
       if (elapsed < cooldownReq) {
@@ -888,6 +925,7 @@ export class McpGateway {
   }
 
   private updateLineCooldown(
+    grant: McpGrant,
     companyId: string,
     lineId: string,
     tool: string,
@@ -895,6 +933,17 @@ export class McpGateway {
   ): void {
     const key = `${companyId}:${lineId}:${tool}`;
     this.lineCooldowns.set(key, currentTick);
+    // Issue #15: append durable evidence for the shared store path.
+    this.options.policyStore?.record({
+      grantId: grant.grantId,
+      kind: 'line_write',
+      atUtcMs: this.options.now?.() ?? Date.now(),
+      matchId: this.authorizedMatchId,
+      companyId,
+      lineId,
+      tool,
+      tick: currentTick,
+    });
   }
 
   private recordSuccess<T>(

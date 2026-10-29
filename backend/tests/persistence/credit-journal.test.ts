@@ -114,7 +114,7 @@ function rejectsJournal(code: string): (error: unknown) => boolean {
 
 test('fresh version-7 storage round-trips an immutable opening and ordered movements', () => {
   withRepositories((repos, database) => {
-    assert.equal(getCurrentVersion(database), 7);
+    assert.equal(getCurrentVersion(database), MIGRATIONS.at(-1)!.version);
     seedJournalMatch(repos, 10);
 
     const openingRequest: CreditJournalOpeningWrite = { ...sampleCreditOpening(), openedAtUtc: AT_UTC };
@@ -466,7 +466,7 @@ test('a legacy CUTOVER opening records observed balances and backfills no histor
     seedJournalMatch(repos, 10);
 
     const legacyCore = snapshotState(database, CORE_STATE_TABLES);
-    assert.deepEqual(migrate(database), { appliedVersions: [7], currentVersion: 7 });
+    assert.deepEqual(migrate(database, MIGRATIONS.slice(0, 7)), { appliedVersions: [7], currentVersion: 7 });
 
     assert.deepEqual(snapshotState(database, CORE_STATE_TABLES), legacyCore);
     assert.equal(repos.companies.load(COMPANY_METAL)?.credits, 10000);
@@ -508,14 +508,14 @@ test('migration 7 preserves a populated version-6 database and repeats as a no-o
     const coreBefore = snapshotState(database, CORE_STATE_TABLES);
     const appliedBefore = getAppliedMigrations(database);
 
-    assert.deepEqual(migrate(database), { appliedVersions: [7], currentVersion: 7 });
+    assert.deepEqual(migrate(database, MIGRATIONS.slice(0, 7)), { appliedVersions: [7], currentVersion: 7 });
     assert.deepEqual(getAppliedMigrations(database).slice(0, 6), appliedBefore);
     assert.deepEqual(snapshotState(database, CORE_STATE_TABLES), coreBefore);
     assert.deepEqual(repos.contracts.list(), [sampleContract()]);
     for (const table of JOURNAL_STATE_TABLES) assert.equal(countRows(database, table), 0);
 
     const applied = getAppliedMigrations(database);
-    assert.deepEqual(migrate(database), { appliedVersions: [], currentVersion: 7 });
+    assert.deepEqual(migrate(database, MIGRATIONS.slice(0, 7)), { appliedVersions: [], currentVersion: 7 });
     assert.deepEqual(getAppliedMigrations(database), applied);
     for (const table of JOURNAL_STATE_TABLES) assert.equal(countRows(database, table), 0);
     assert.deepEqual(snapshotState(database, CORE_STATE_TABLES), coreBefore);
@@ -554,7 +554,7 @@ test('a failed migration 7 rolls back its tables and version before a clean appl
       assert.throws(() => countRows(database, table), /no such table/);
     }
 
-    assert.deepEqual(migrate(database), { appliedVersions: [7], currentVersion: 7 });
+    assert.deepEqual(migrate(database, MIGRATIONS.slice(0, 7)), { appliedVersions: [7], currentVersion: 7 });
     assert.deepEqual(snapshotState(database, CORE_STATE_TABLES), coreBefore);
     repos.contracts.save({ ...sampleContract(), contractId: 'contract_after_upgrade' });
     assert.equal(repos.contracts.list().length, 2);

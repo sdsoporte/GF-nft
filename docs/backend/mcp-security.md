@@ -35,6 +35,24 @@ or idempotency key. The migration does not change inventories, credits or queue
 counters. `schema.sql` remains the version-1 baseline; versioned migrations own
 subsequent schema additions.
 
+## Durable policy state (issue #15)
+
+Rate limits, per-match write quotas and per-line cooldowns are no longer
+process-local. Every consumed read/write quota event and every accepted line
+action is appended to the `mcp_policy_events` table (migration 8), and the
+gateway consults that evidence at check time. Consequences:
+
+- A backend restart does not reset cooldowns, per-minute windows or per-match
+  write counts.
+- Any number of backend instances sharing the same SQLite database enforce the
+  same limits, because the checks read the shared evidence instead of local
+  Maps.
+- Exact retries of a known idempotency key keep reporting
+  `ERR_DUPLICATE_IDEMPOTENCY_KEY` even during a cooldown; the cooldown only
+  gates distinct actions.
+- Grants remain hash-only rows; the events table stores `grant_id` as plain
+  evidence and never a token.
+
 ## Work in progress
 
 Issue #2 is asserted locally, pending independent final verification/publication.

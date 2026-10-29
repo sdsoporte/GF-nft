@@ -45,6 +45,10 @@ export function createMcpRuntime(options: {
       now,
       resolveGrant: token => closed ? undefined : grants.resolve(token),
       submitCommand: command => options.match.submitMcpCommand(command),
+      // Issue #15: rate limits, match quotas and line cooldowns consult the
+      // durable policy-event evidence, so restarts and second instances
+      // sharing this database cannot evade them.
+      policyStore: repositories.mcpPolicyEvents,
     });
     return { sessions, grants, gateway, close: () => {
       if (closed) return;
