@@ -374,11 +374,31 @@ export class FactoryMatch {
     }
   }
 
-  /** Advance the authoritative simulation by one or more discrete ticks. */
+  /**
+   * Advance the authoritative simulation by one or more discrete ticks.
+   *
+   * Each tick is one unit of work on both sides (risk item 4): the engine
+   * mutates in memory, then the whole tick is persisted atomically. If the
+   * durable write refuses the tick, the engine is rewound to the checkpoint
+   * taken just before it, so the failure leaves the match exactly where the
+   * database already was and the caller can retry the same tick.
+   *
+   * The rollback is per tick, not per call: a multi-tick call whose later tick
+   * fails keeps every earlier tick that already committed. The original error is
+   * always rethrown unchanged, so a caller (the clock, HTTP, a test) sees the
+   * same failure it would without rollback.
+   */
   public advanceTicks(count = 1): void {
     for (let index = 0; index < count; index += 1) {
-      this.engine.processTick();
-      this.commitTickProgress();
+      const checkpoint = this.engine.createCheckpoint();
+      try {
+        this.engine.processTick();
+        this.commitTickProgress();
+      } catch (error) {
+        // Undo only this tick; anything committed before it stays committed.
+        this.engine.restoreCheckpoint(checkpoint);
+        throw error;
+      }
     }
   }
 

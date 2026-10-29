@@ -75,6 +75,16 @@ export class Mulberry32PRNG {
   public getSeed(): number {
     return this.state;
   }
+
+  /**
+   * Rewind to a previously observed state (checkpoint rollback). Additive: the
+   * PRNG is the only engine state that cannot be rebuilt from rows, so a failed
+   * tick restores it explicitly instead of reseeding the whole engine.
+   */
+  public restoreState(seed: number): void {
+    assertSafeInteger(seed, 'seed');
+    this.state = seed >>> 0;
+  }
 }
 
 /**
@@ -279,13 +289,38 @@ export function deriveGlobalProjectState(
 }
 
 /**
- * Everything a restart has to hand back to a fresh engine, in the order it is
- * applied (A3). Every field is optional and only the fields present are
- * restored, which is what lets a caller rebuild a tick-0 command queue without
- * re-sending the standard company layout.
+ * Complete, detached engine state at one instant (risk item 4: failed-tick
+ * rollback).
  *
- * `companies` / `contracts` / `commandResults` are cloned, so the caller keeps
- * ownership of the rows it passes in.
+ * It covers every field a tick can move: the clock, the PRNG, the contract id
+ * counter (the real counter, never inferred from existing ids), companies with
+ * their inventory and lines, contracts, the global project, the command queue
+ * with its permanent dedupe keys and sequence counter, and the execution
+ * history.
+ *
+ * The snapshot is a deep copy in both directions: `createCheckpoint` clones the
+ * engine, so later ticks cannot rewrite it, and `restoreCheckpoint` hydrates
+ * from a clone, so the engine never keeps a reference into it. That is what lets
+ * `FactoryMatch` hold a checkpoint across `processTick` and throw it away on
+ * success or restore it on failure.
+ *
+ * Deliberately NOT part of the wire snapshot (`SimulationSnapshot`): this is an
+ * in-process rollback handle, not a projection clients receive.
+ */
+export interface EngineCheckpoint {
+  readonly currentTick: number;
+  readonly prngState: number;
+  readonly contractCounter: number;
+  readonly companies: readonly CompanyState[];
+  readonly contracts: readonly SupplyContract[];
+  readonly globalProject: GlobalProjectState;
+  readonly queue: CommandQueueState;
+  readonly commandResults: readonly CommandExecutionResult[];
+}
+
+/**
+ * Optional restart fields, applied in order (A3). Companies, contracts and
+ * execution results are cloned; omitted fields keep their current values.
  */
 export interface EngineHydration {
   /** Monotonic tick floor (`matches.current_tick`). */
@@ -502,6 +537,49 @@ export class SimulatorEngine {
   }
 
   /**
+   * Capture the whole engine state as a detached deep copy (see
+   * `EngineCheckpoint`). Called once per tick of work, before `processTick`.
+   */
+  public createCheckpoint(): EngineCheckpoint {
+    return {
+      currentTick: this.currentTick,
+      prngState: this.rng.getSeed(),
+      contractCounter: this.contractCounter,
+      companies: structuredClone(this.getAllCompanies()),
+      contracts: structuredClone(this.getAllContracts()),
+      globalProject: { ...this.globalProject },
+      queue: {
+        commands: this.commandQueue.listPending(),
+        processedIdempotencyKeys: this.commandQueue.listProcessedIdempotencyKeys(),
+        sequenceCounter: this.commandQueue.getSequenceCounter(),
+      },
+      commandResults: this.getExecutionHistory().map((result) => ({ ...result })),
+    };
+  }
+
+  /**
+   * Put the engine back to a checkpoint captured by `createCheckpoint`.
+   *
+   * Delegates to `hydrate`, so the restore reuses the exact validation and clone
+   * semantics a restart uses instead of a second, drifting implementation: the
+   * same duplicate-id, line-ownership, counter and history-ordering checks
+   * apply. The PRNG is restored last because `hydrate` does not (and must not)
+   * own randomness.
+   */
+  public restoreCheckpoint(checkpoint: EngineCheckpoint): void {
+    this.hydrate({
+      currentTick: checkpoint.currentTick,
+      companies: checkpoint.companies,
+      contracts: checkpoint.contracts,
+      globalProject: checkpoint.globalProject,
+      contractCounter: checkpoint.contractCounter,
+      queue: checkpoint.queue,
+      commandResults: checkpoint.commandResults,
+    });
+    this.rng.restoreState(checkpoint.prngState);
+  }
+
+  /**
    * Current PRNG state. Tick logic never advances the PRNG (all randomness in a
    * match comes from the seed handed to the constructor), which is why
    * `hydrate` does not need to restore it: a match rebuilt with the persisted
@@ -514,7 +592,8 @@ export class SimulatorEngine {
 
   /**
    * Restore a persisted engine state (additive API, A3). Called ONCE at boot by
-   * the match layer, before the clock starts; never during a tick.
+   * the match layer, before the clock starts; also the implementation of
+   * `restoreCheckpoint` for a failed tick.
    *
    * Semantics:
    * - only the fields present are restored, in this fixed order: companies →
