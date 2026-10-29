@@ -2,9 +2,10 @@
 
 Migration `007_credit_journal` adds the durable storage an auditable credit
 ledger needs. It is a **storage and audit foundation**: it records an immutable
-opening and append-only movements, and it changes no balance. Contract
-settlement, the 2% fee on delivered value and legacy opening creation inside a
-live match are later integration work; nothing here runs automatically.
+opening and append-only movements, and it changes no balance. The engine now
+produces in-memory movement evidence and settles delivered value with a 2% fee
+([rules](supply-contracts.md)). Automatic durable match binding and boot coverage
+remain the next integration cut; the repository itself runs no game flow.
 
 ## What the tables mean
 

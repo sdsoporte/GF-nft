@@ -1,19 +1,11 @@
 /**
  * Spec S3 — credit and collateral invariants for the flows that hold today.
  *
- * Scope boundary (assumption A1 / issue #5): partial-delivery settlement on an
- * expired contract is a documented OPEN defect. The engine refunds the buyer for
- * the undelivered units and pays out the seller collateral, but the delivered
- * units are never paid to the seller, so their value leaves the ledger without a
- * declared sink. This file therefore:
- *
- * - asserts full credit conservation for the flows that hold today: creation
- *   moves no credits, acceptance locks buyer value plus seller collateral,
- *   fulfilment returns collateral and pays the seller minus the 2% market fee
- *   (the only declared sink), cancellation and partial shipment move no credits;
- * - asserts today's documented default behavior without blessing the ledger
- *   outcome, and carries a PENDING entry linked to issue #5 for the settlement
- *   assertion that must flip green when #5 lands.
+ * Issue #5: full and partial delivered value pays the seller net of the 2%
+ * declared fee. Undelivered escrow is refunded; indemnity transfers collateral
+ * to the buyer, and remaining collateral returns to the seller. Available plus
+ * held balances and fee sinks conserve initial credits in these pre-maintenance
+ * scenarios. DRAFT/PENDING cancellation and partial shipment move no credits.
  *
  * Collateral arithmetic asserted here: `collateral = floor(totalValue * 20 / 100)`
  * and `totalValue = quantity * unitPrice`, both derived from the contract terms
@@ -46,21 +38,21 @@ const INITIAL_MATCH_CREDITS = INITIAL_CREDITS_PER_COMPANY * 4;
 
 function marketFee(contract: SupplyContract): number {
   return Math.floor(
-    (contract.totalValueCredits * SimulatorEngine.MARKET_TRANSACTION_FEE_BPS) / 10000,
+    (contract.deliveredQuantity * contract.unitPriceCredits * SimulatorEngine.MARKET_TRANSACTION_FEE_BPS) / 10000,
   );
 }
 
 /**
  * Spendable credits plus everything the credit ledger still owns elsewhere:
- * escrow held by ACTIVE contracts and the fee already burned by FULFILLED ones.
- * This total is invariant for every non-defaulting contract flow.
+ * escrow held by ACTIVE contracts and the delivered-value fee at closed ones.
+ * This total is invariant for the contract flows before maintenance.
  */
 function creditBookTotal(snapshot: SimulationSnapshot): number {
   let total = totalCredits(snapshot);
   for (const contract of Object.values(snapshot.contracts)) {
     if (contract.status === 'ACTIVE') {
       total += contract.totalValueCredits + contract.collateralSellerCredits;
-    } else if (contract.status === 'FULFILLED') {
+    } else if (contract.status === 'FULFILLED' || contract.status === 'DEFAULTED') {
       total += marketFee(contract);
     }
   }
@@ -258,8 +250,8 @@ test('a cancelled offer releases no credits and moves the book by nothing (seed 
 });
 
 /**
- * Default settlement after a partial delivery. Today's documented behavior is
- * asserted; the ledger loss it leaves behind is issue #5 and stays pending.
+ * Default settlement pays delivered value, refunds missing value and transfers
+ * collateral-backed indemnity without an undeclared loss.
  */
 const DEFAULT_SCENARIO = createScenario({
   seed: 2024,
@@ -280,7 +272,7 @@ const DEFAULT_SCENARIO = createScenario({
   ],
 });
 
-test('default refunds the undelivered value and caps the indemnity at the collateral (issue #5 pending)', () => {
+test('default refunds the undelivered value and caps the indemnity at the collateral (issue #5)', () => {
   let beforeDefault: SimulationSnapshot | undefined;
   let afterDefault: SimulationSnapshot | undefined;
 
@@ -321,8 +313,8 @@ test('default refunds the undelivered value and caps the indemnity at the collat
   const sellerAfter = afterDefault.companies[METAL_A];
   assert.equal(
     sellerAfter.credits - sellerBefore.credits,
-    contract.collateralSellerCredits - indemnity,
-    'the seller only gets back the collateral the penalty did not consume',
+    contract.collateralSellerCredits - indemnity + contract.deliveredQuantity * contract.unitPriceCredits - marketFee(contract),
+    'the seller receives delivered value net of fee and unspent collateral',
   );
   assert.equal(sellerAfter.reputation, sellerBefore.reputation - 15, 'the seller is penalised');
 
@@ -332,11 +324,14 @@ test('default refunds the undelivered value and caps the indemnity at the collat
   assert.equal(engine.getCurrentTick(), DEFAULT_SCENARIO.totalTicks);
 });
 
-// Issue #5 (`[P0][Economía] Ledger de créditos en entrega parcial`) is still open:
-// today the delivered units are never paid to the seller and their value vanishes
-// without a declared sink (40,000 -> 39,940 for the scenario above, i.e. the 30
-// delivered units x 2 credits). This entry flips to an asserted test when the fix
-// lands; it must not be reported as green coverage before then.
-test.todo(
-  'partial-delivery default pays the seller for delivered units and conserves total credits (issue #5)',
-);
+test('partial-delivery default pays the seller for delivered units and conserves total credits (issue #5)', () => {
+  const engine = runScenario(DEFAULT_SCENARIO);
+  const read = Reflect.get(engine, 'getCreditLedger');
+  assert.equal(typeof read, 'function');
+  const journal = engine.getCreditLedger();
+  const paid = journal.movements.filter((entry) => entry.kind === 'DELIVERY_PAYMENT');
+  const fees = journal.movements.filter((entry) => entry.kind === 'FEE_SINK');
+  assert.deepEqual(paid.map((entry) => entry.amountCredits), [59]);
+  assert.deepEqual(fees.map((entry) => entry.amountCredits), [1]);
+  assert.equal(totalCredits(engine.createSnapshot()) + 1, INITIAL_MATCH_CREDITS);
+});

@@ -3,10 +3,8 @@
  * S2). Scenarios drive the authoritative engine through public APIs only and
  * assert current behavior at exact tick boundaries.
  *
- * Open P0 defect #5 (credit conservation on partial delivery/settlement) is NOT
- * asserted as correct behavior: the seller-side payout for already delivered
- * units and the total credit conservation of a partial default are explicit
- * pending tests that stay skipped until issue #5 lands its fix.
+ * Issue #5 asserts delivered-value settlement with a 2% declared fee sink,
+ * including partial default; the deadline tick remains inclusive.
  */
 
 import assert from 'node:assert/strict';
@@ -156,34 +154,26 @@ test('a partial default refunds the outstanding value and indemnifies the buyer'
   // Seller loses reputation and receives the collateral that the indemnity did
   // not consume (100 - 60 = 40).
   assert.equal(companyOf(engine, SELLER).reputation, 85);
-  assert.ok(
-    companyOf(engine, SELLER).credits >= 9940,
-    'seller keeps the unspent collateral; the exact total is pending issue #5',
-  );
+  assert.equal(companyOf(engine, SELLER).credits, 10136); // 9900 + 40 + (200 - 4)
 
   // Goods already shipped stay with the buyer and never return to the seller.
   assert.equal(companyOf(engine, BUYER).inventory.STEEL_PLATE.available, 4);
   assert.equal(companyOf(engine, SELLER).inventory.STEEL_PLATE.available, 6);
 });
 
-test('a partial default pays the seller for the units it already delivered (issue #5)', {
-  skip: 'issue #5 is open: default settlement never pays the seller for delivered units',
-}, () => {
+test('a partial default pays the seller for the units it already delivered (issue #5)', () => {
   const { driver, engine, contractId } = partialDeliveryThenDeadline();
 
   driver.run(6);
   assert.equal(contractOf(engine, contractId).status, 'DEFAULTED');
 
-  // Expected behavior once issue #5 is fixed: the 4 delivered units (4 * 50 =
-  // 200 CREDITS) are paid out of the escrow at settlement.
-  // 9900 locked-state + 40 returned collateral + 200 delivered value.
-  assert.equal(companyOf(engine, SELLER).credits, 10140);
+  // 4 * 50 = 200 delivered, fee 4, seller net 196.
+  // 9900 locked-state + 40 returned collateral + 196 delivered payment.
+  assert.equal(companyOf(engine, SELLER).credits, 10136);
   assert.equal(companyOf(engine, BUYER).credits, 9860);
 });
 
-test('a partial default conserves total credits between both companies (issue #5)', {
-  skip: 'issue #5 is open: credit conservation breaks on partial delivery plus settlement',
-}, () => {
+test('a partial default conserves total credits between both companies (issue #5)', () => {
   const { driver, engine, contractId } = partialDeliveryThenDeadline();
 
   driver.run(6);
@@ -192,5 +182,11 @@ test('a partial default conserves total credits between both companies (issue #5
   // Both companies start at 10,000 and no other credit flow happens in this
   // scenario (no production, so no maintenance fee before tick 300).
   const total = companyOf(engine, SELLER).credits + companyOf(engine, BUYER).credits;
-  assert.equal(total, 20000);
+  const read = Reflect.get(engine, 'getCreditLedger');
+  assert.equal(typeof read, 'function');
+  const journal = engine.getCreditLedger();
+  const fee = journal.movements.filter((movement) => movement.kind === 'FEE_SINK')
+    .reduce((sum, movement) => sum + movement.amountCredits, 0);
+  assert.equal(fee, 4);
+  assert.equal(total + fee, 20000);
 });

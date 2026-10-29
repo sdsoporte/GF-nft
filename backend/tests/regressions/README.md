@@ -18,7 +18,7 @@ never red-in-CI.
 ## Status
 
 Green means the regression is runnable on this branch, not that a remote issue
-was automatically closed. Issues #2, #3, #4 and the current server/archive scope of #7 are asserted locally;
+was automatically closed. Issues #2, #3, #4, #5 engine settlement and the current server/archive scope of #7 are asserted locally;
 publication and remote issue closure remain the maintainer's decisions.
 Acceptance rules and exact errors are documented in the
 [supply contract guide](../../../docs/backend/supply-contracts.md).
@@ -29,7 +29,7 @@ Acceptance rules and exact errors are documented in the
 | #2 | green | [P0][Seguridad MCP] Aislar lecturas e historial por empresa autenticada | `backend/tests/mcp/isolation.test.ts` | Asserted locally: private reads reject foreign targets and history filters durable ownership after recovery. Remote closure follows publication. |
 | #3 | green | [P0][Contratos] Separar borradores MCP de ofertas publicadas y exigir aprobación humana | `backend/tests/mcp/isolation.test.ts` | Asserted locally: DRAFTs are private/nonbinding, capped at five across queued commands; owner-session publication and durable recovery have dedicated public tests. Remote closure is separate. |
 | #4 | green | [P0][Contratos] Validar comprador destinatario, propiedad y autocontratación | `backend/tests/mcp/isolation.test.ts`, `backend/tests/engine/contracts-lifecycle.test.ts` | Asserted locally: wrong buyers and seller self-dealing cannot change balances, inventories or offer terms; same-tick acceptance and retries escrow only once. Remote closure is separate. |
-| #5 | pending | [P0][Economía] Garantizar conservación de créditos en contratos y entregas parciales | `backend/tests/engine/contracts-expiration.test.ts`, `backend/tests/property/credits.test.ts` | Remove the two `skip:` markers in `contracts-expiration.test.ts` and convert the `test.todo` in `property/credits.test.ts` into an asserted test once default settlement pays the delivered units and conserves credits; then flip this row and its three matrix entries to `green`. |
+| #5 | green | [P0][Economía] Garantizar conservación de créditos en contratos y entregas parciales | `backend/tests/engine/contracts-expiration.test.ts`, `backend/tests/property/credits.test.ts` | Runnable engine assertions pay delivered value net of 2%, declare the fee sink and conserve credits. No #5 skip/todo remains. Durable runtime binding remains tracked by T4; remote closure is separate. |
 | #6 | green | [P0][Arquitectura] Ejecutar SimulatorEngine en backend autoritativo, no en React | `backend/tests/commands.test.ts`, `backend/tests/http-boundary.test.ts` | Nothing. The backend-owned clock, server-selected company and server-tick batch are asserted; a failure means the authoritative backend regressed. |
 | #7 | green | [P0][Credenciales] Eliminar tokens MCP fijos y proteger la emisión/revocación de grants | `backend/tests/mcp-runtime.test.ts`, `backend/tests/owner-grants-http.test.ts`, `tests/integration/repository-boundaries.test.ts` | Asserted current scope: real server refuses fixture registration/demo credentials; grants require owner sessions and one-time delivery; retired web is outside active builds. No claim that the isolated legacy fixture's re-registration behavior was fixed. |
 
@@ -81,5 +81,5 @@ re-registration case remains skipped in `backend/tests/mcp/isolation.test.ts`;
 it was not deleted, silently asserted or fixed by this structural migration.
 The real server forbids raw registration entirely, so #7 now pins the active
 server/HTTP/archive boundary tests instead. This does not close GitHub #7 or
-claim that every legacy SDK mode has changed. Remaining #5 skips/todo are
-separate economic-settlement work.
+claim that every legacy SDK mode has changed. The #5 settlement assertions now
+run; this does not silently activate the separate legacy #7 fixture.

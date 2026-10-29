@@ -57,12 +57,31 @@ See [owner API](mcp-owner-api.md) for the request and exact responses, and
 | `ERR_OFFER_NOT_AVAILABLE` | `Offer does not exist or is not pending` | The offer is missing or not pending, including DRAFTs and competing acceptance/retries. |
 | `ERR_CANNOT_PUBLISH` | `Only draft offers owned by the company can be published` | Internal publication targets another owner or a non-DRAFT. |
 | `ERR_MAX_DRAFTS_REACHED` | `Maximum 5 open draft offers per company` | A sixth open draft would be created. |
+| `ERR_CONTRACT_NOT_ACTIVE` | `Target contract is not active` | Dispatch targets a non-ACTIVE contract or executes strictly after its deadline. |
 | `ERR_CANNOT_CANCEL` | `Only draft or pending offers owned by the company can be cancelled` | Cancellation targets another owner or a non-cancellable state. |
 | `ERR_INVALID_OFFER_PARAMS` | `Offer deadline must be in the future` | A draft expires before its publication tick. |
 
 Existing insufficient-funds and insufficient-collateral results are unchanged.
-Partial-default settlement (#5) remains separate; no accounting completion is
-claimed by the authorization/draft work.
+
+## Settlement and engine audit (#5)
+
+- Delivery is inclusive of the deadline tick; later dispatch changes no goods or
+  transport energy. Ordinary default still runs on the first subsequent tick.
+- Full or partial settlement pays actual delivered value minus
+  `floor(deliveredValue * 200 / 10000)`. Four units at 50 pay gross 200,
+  fee sink 4 and seller net 196. Zero delivery has no payment or market fee.
+- Undelivered escrow is refunded. Indemnity is the smaller of collateral and
+  missing units times penalty; remaining collateral returns to the seller.
+- `engine.getCreditLedger()` returns a detached opening plus positive typed
+  movements, stable event keys and contiguous sequence. Available credits remain
+  authoritative; the archive stores evidence, not another mutable balance.
+- Maintenance records only the actual aggregate company payment, including a
+  shortfall; existing pause, reputation and zero-line behavior is unchanged.
+- Checkpoints include journal state. A restored state without an archive starts
+  observed CUTOVER coverage and never fabricates earlier closed-contract payouts.
+  Durable automatic match binding is the next integration cut, not yet claimed.
+- DRAFT/PENDING cancellation has no economic movement. ACTIVE cancellation and
+  MCP financial tools remain unsupported.
 
 ## Verify
 
