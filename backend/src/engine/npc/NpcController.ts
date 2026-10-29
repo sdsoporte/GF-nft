@@ -1,0 +1,117 @@
+/**
+ * GigaForge v4.1 - NPC Controller
+ * Orchestrates deterministic NPC participants within an active match.
+ */
+
+import { EnqueueCommandInput, RecipeId, SimulationSnapshot } from '../../domain/types.ts';
+import { Mulberry32PRNG, SimulatorEngine } from '../SimulatorEngine.ts';
+import { DeterministicNpcPolicy } from './DeterministicNpcPolicy.ts';
+import { NpcCompanyConfig } from './types.ts';
+
+export const DEFAULT_NPC_CONFIG_CLASS_A: NpcCompanyConfig = Object.freeze({
+  companyId: 'comp_metal_02',
+  targetBuffer: Object.freeze({
+    RAW_ORE: 30,
+    IRON_INGOT: 10,
+    STEEL_PLATE: 8,
+    HEAVY_ALLOY: 4,
+  }),
+  preferredRecipes: Object.freeze<RecipeId[]>(['R1', 'R2', 'R3']),
+  priceMarginPercent: 15,
+  maxBuyPriceMarginPercent: 25,
+  offerBatchSizes: Object.freeze({
+    IRON_INGOT: 5,
+    STEEL_PLATE: 4,
+    HEAVY_ALLOY: 2,
+  }),
+  offerDurationTicks: 300,
+  minCreditReserve: 500,
+  autoInstallTurbine: true,
+  maxActiveOffers: 3,
+});
+
+export const DEFAULT_NPC_CONFIG_CLASS_B: NpcCompanyConfig = Object.freeze({
+  companyId: 'comp_manuf_02',
+  targetBuffer: Object.freeze({
+    IRON_INGOT: 10,
+    STEEL_PLATE: 10,
+    MECH_FRAME: 4,
+    CTRL_CIRCUIT: 4,
+    POWER_MODULE: 2,
+    IND_TURBINE: 1,
+  }),
+  preferredRecipes: Object.freeze<RecipeId[]>(['R4', 'R5', 'R6', 'R7']),
+  priceMarginPercent: 15,
+  maxBuyPriceMarginPercent: 25,
+  offerBatchSizes: Object.freeze({
+    MECH_FRAME: 2,
+    CTRL_CIRCUIT: 2,
+    POWER_MODULE: 1,
+    IND_TURBINE: 1,
+  }),
+  offerDurationTicks: 300,
+  minCreditReserve: 500,
+  autoInstallTurbine: true,
+  maxActiveOffers: 3,
+});
+
+export interface NpcControllerOptions {
+  readonly seed?: number;
+  readonly configs?: readonly NpcCompanyConfig[];
+}
+
+export class NpcController {
+  private readonly rng: Mulberry32PRNG;
+  private readonly policies: Map<string, DeterministicNpcPolicy> = new Map();
+
+  constructor(options: NpcControllerOptions = {}) {
+    this.rng = new Mulberry32PRNG(options.seed ?? 42107);
+    const configs = options.configs ?? [DEFAULT_NPC_CONFIG_CLASS_A, DEFAULT_NPC_CONFIG_CLASS_B];
+    for (const config of configs) {
+      this.policies.set(config.companyId, new DeterministicNpcPolicy(config));
+    }
+  }
+
+  public getRegisteredCompanyIds(): string[] {
+    return Array.from(this.policies.keys());
+  }
+
+  public getPolicy(companyId: string): DeterministicNpcPolicy | undefined {
+    return this.policies.get(companyId);
+  }
+
+  /**
+   * Evaluate all registered NPCs and submit their decisions to the engine.
+   * Returns all enqueued commands.
+   */
+  public stepTick(engine: SimulatorEngine): EnqueueCommandInput[] {
+    const allSubmitted: EnqueueCommandInput[] = [];
+    const currentTick = engine.getCurrentTick();
+    const contracts = engine.getAllContracts();
+
+    for (const [companyId, policy] of this.policies.entries()) {
+      const company = engine.getCompany(companyId);
+      if (!company || !company.isNPC) continue;
+
+      const decisions = policy.evaluateDecisions(company, contracts, currentTick, this.rng);
+      for (const cmd of decisions) {
+        const enqueued = engine.submitCommand(cmd);
+        if (enqueued) {
+          allSubmitted.push(cmd);
+        }
+      }
+    }
+
+    return allSubmitted;
+  }
+
+  /**
+   * Run one complete tick: evaluate NPCs, enqueue commands, then advance engine tick.
+   * Returns the resulting snapshot and commands.
+   */
+  public stepAndTick(engine: SimulatorEngine): EnqueueCommandInput[] {
+    const submitted = this.stepTick(engine);
+    engine.processTick();
+    return submitted;
+  }
+}
