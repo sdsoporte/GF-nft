@@ -26,6 +26,7 @@ import { SETTLEMENT_BOOKKEEPING_MIGRATION } from './migrations/003_settlement_bo
 import { COMMAND_RESULT_TENANT_MIGRATION } from './migrations/004_command_result_tenant.ts';
 import { MCP_GRANT_TOKEN_HASH_MIGRATION } from './migrations/005_mcp_grant_token_hash.ts';
 import { CONTRACT_DRAFT_STATUS_MIGRATION } from './migrations/006_contract_draft_status.ts';
+import { CREDIT_JOURNAL_MIGRATION } from './migrations/007_credit_journal.ts';
 
 export interface Migration {
   readonly version: number;
@@ -74,6 +75,7 @@ export const MIGRATIONS: readonly Migration[] = [
   COMMAND_RESULT_TENANT_MIGRATION,
   MCP_GRANT_TOKEN_HASH_MIGRATION,
   CONTRACT_DRAFT_STATUS_MIGRATION,
+  CREDIT_JOURNAL_MIGRATION,
 ];
 
 interface AppliedRow {

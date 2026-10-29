@@ -44,6 +44,25 @@ modules now live under `backend/src/`. The imports are **not** repaired: the
 archive is a frozen snapshot, not a buildable tree, and copying the active core
 into it would create a second source of truth.
 
+## Issue #12 disposition
+
+[Issue #12](https://github.com/sdsoporte/GF-nft/issues/12) reported that
+`handleReset` replaced `engineRef.current` while `engine`, `gateway` and
+`settlement` stayed captured from render. It was filed against this directory's
+`src/App.tsx`, at a time when that file was still the active app.
+
+| Question | Disposition in current scope |
+| --- | --- |
+| Applies to the active product? | No. The active product is the Bun backend plus the Godot client; neither runs `handleReset`. |
+| Fixed? | Not claimed. No `Reset → Play → Operar → Reset` UI test was written or run for this archive, so none of the four issue criteria is treated as verified. |
+| Runnable evidence? | None. This tree has no install, dev server, build or test command, so the criteria cannot be measured here. |
+| Remote issue state? | Unchanged. This document does not close, comment on or otherwise modify issue #12. |
+
+The accepted source-only archive supersedes the issue's applicability: the reset
+criteria stay historical text until a maintainer either restores a runnable demo
+or ports reset semantics into the active backend/Godot path. Reading the
+archived `src/App.tsx` is provenance, not a fix.
+
 ## Ownership
 
 - Active backend: `backend/` (engine, domain, persistence, MCP gateway, HTTP).

@@ -15,14 +15,18 @@ import { withTransaction } from '../../src/persistence/database.ts';
 import { runAtomic } from '../../src/persistence/transaction.ts';
 import {
   COMPANY_METAL,
+  JOURNAL_MATCH_ID,
   countRows,
   fullInventory,
   sampleCompanyState,
   sampleContract,
+  sampleCreditMovement,
+  sampleCreditOpening,
   sampleEscrow,
   sampleLine,
   sampleLot,
   seedCompanies,
+  seedJournalMatch,
   seedLotPair,
   snapshotState,
   withRepositories,
@@ -191,6 +195,31 @@ test('a failure after a successful inner savepoint undoes the whole outer transa
     );
 
     assert.deepEqual(snapshotState(database), before);
+  });
+});
+
+test('a journal opening and its movements roll back with the surrounding unit of work', () => {
+  withRepositories((repos, database) => {
+    seedCompanies(repos);
+    seedJournalMatch(repos, 10);
+    const before = snapshotState(database);
+
+    assert.throws(
+      () =>
+        runAtomic(database, () => {
+          repos.creditJournal.createOpening(sampleCreditOpening());
+          repos.creditJournal.append(JOURNAL_MATCH_ID, [
+            sampleCreditMovement({ sequence: 1, eventKey: 'evt_atomic', tick: 5 }),
+            sampleCreditMovement({ sequence: 2, eventKey: 'evt_atomic', tick: 6 }),
+          ]);
+        }),
+      /DUPLICATE_EVENT_KEY/,
+    );
+
+    assert.deepEqual(snapshotState(database), before);
+    assert.equal(countRows(database, 'credit_ledger_openings'), 0);
+    assert.equal(countRows(database, 'credit_ledger_opening_balances'), 0);
+    assert.equal(countRows(database, 'credit_ledger_movements'), 0);
   });
 });
 

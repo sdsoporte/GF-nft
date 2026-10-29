@@ -30,6 +30,7 @@ import {
   SimulatorEngine,
   type EngineHydration,
 } from './engine/SimulatorEngine.ts';
+import { createEngineCreditOpening } from './engine/EngineCreditJournal.ts';
 import {
   CommandNotAccepted,
   type AdoptedMatch,
@@ -191,6 +192,8 @@ export class FactoryMatch {
   private readonly commandRecords = new Map<string, CommandStatusView>();
   /** Number of engine execution results already folded into command records. */
   private historyCursor = 0;
+  /** Last journal sequence durably committed; advanced only after SQL succeeds. */
+  private creditJournalSequence = 0;
 
   /** Durable match state, or null when persistence is disabled. */
   private readonly store: MatchStore | null;
@@ -227,12 +230,13 @@ export class FactoryMatch {
       : null;
 
     this.seed = boot?.metadata.seed ?? requestedSeed;
-    this.engine = new SimulatorEngine(this.seed);
-    this.engine.initializeStandardMatch();
     this.matchId = boot?.metadata.matchId ?? options.matchId ?? createMatchId();
+    this.engine = new SimulatorEngine(this.seed, this.matchId);
+    this.engine.initializeStandardMatch();
     this.tickIntervalMs = boot?.metadata.tickIntervalMs ?? requestedTickIntervalMs;
 
-    if (!boot) return;
+    const store = this.store;
+    if (!boot || !store) return;
     this.sequenceFloor = boot.metadata.sequenceCounter;
     this.tickFloor = boot.metadata.currentTick;
     // The cursor is a floor, not a mirror: a restart must never re-fold results
@@ -240,11 +244,14 @@ export class FactoryMatch {
     this.historyCursor = Math.max(boot.metadata.historyCursor, boot.results.length);
     this.restoreBookkeeping(boot);
     this.restoreEngineState();
-
-    if (!boot.adopted) {
-      // A brand new match persists its opening snapshot, so a restart before the
-      // first tick still has an engine state to rebuild instead of only rows.
-      this.persistEngineSnapshot();
+    const hadOpening = this.restoreCreditJournal(boot.adopted);
+    if (!boot.adopted || !hadOpening) {
+      // New worlds and their COMPLETE opening commit together. Legacy cutover
+      // writes only new evidence: no core row or old balance is repaired.
+      runAtomic(store.database, () => {
+        if (!boot.adopted) this.persistEngineSnapshot();
+        if (!hadOpening) store.repositories.creditJournal.createOpening(this.engine.getCreditLedger().opening);
+      });
     }
   }
 
@@ -326,6 +333,23 @@ export class FactoryMatch {
     }
   }
 
+  /** Restore durable evidence or observe an explicitly unverified legacy cut. */
+  private restoreCreditJournal(adopted: boolean): boolean {
+    const store = this.store;
+    if (!store) return false;
+    const record = store.repositories.creditJournal.getOpening(this.matchId);
+    const opening = record ? {
+      matchId: record.matchId, observedAtTick: record.observedAtTick,
+      coverage: record.coverage, balances: record.balances,
+    } : createEngineCreditOpening(this.matchId, this.engine.getCurrentTick(),
+      adopted ? 'CUTOVER' : 'COMPLETE', this.engine.getAllCompanies(), this.engine.getAllContracts());
+    const movements = store.repositories.creditJournal.list(this.matchId)
+      .map(({ recordedAtUtc: _at, ...movement }) => movement);
+    this.engine.hydrate({ creditLedger: { opening, movements } });
+    this.creditJournalSequence = movements.length;
+    return record !== null;
+  }
+
   /**
    * Persist the engine snapshot (S5): every company with its inventory and
    * production lines, plus every contract.
@@ -374,11 +398,31 @@ export class FactoryMatch {
     }
   }
 
-  /** Advance the authoritative simulation by one or more discrete ticks. */
+  /**
+   * Advance the authoritative simulation by one or more discrete ticks.
+   *
+   * Each tick is one unit of work on both sides (risk item 4): the engine
+   * mutates in memory, then the whole tick is persisted atomically. If the
+   * durable write refuses the tick, the engine is rewound to the checkpoint
+   * taken just before it, so the failure leaves the match exactly where the
+   * database already was and the caller can retry the same tick.
+   *
+   * The rollback is per tick, not per call: a multi-tick call whose later tick
+   * fails keeps every earlier tick that already committed. The original error is
+   * always rethrown unchanged, so a caller (the clock, HTTP, a test) sees the
+   * same failure it would without rollback.
+   */
   public advanceTicks(count = 1): void {
     for (let index = 0; index < count; index += 1) {
-      this.engine.processTick();
-      this.commitTickProgress();
+      const checkpoint = this.engine.createCheckpoint();
+      try {
+        this.engine.processTick();
+        this.commitTickProgress();
+      } catch (error) {
+        // Undo only this tick; anything committed before it stays committed.
+        this.engine.restoreCheckpoint(checkpoint);
+        throw error;
+      }
     }
   }
 
@@ -581,6 +625,8 @@ export class FactoryMatch {
     const history = this.engine.getExecutionHistory();
     const folded = history.slice(this.historyCursor);
     const nextCursor = Math.max(this.historyCursor, history.length);
+    const journal = this.engine.getCreditLedger();
+    const movements = journal.movements.slice(this.creditJournalSequence);
 
     const store = this.store;
     if (store) {
@@ -595,6 +641,7 @@ export class FactoryMatch {
             ...result,
           })),
           completedCommandIds: folded.map((result) => result.commandId),
+          ...(movements.length ? { movements } : {}),
         });
         this.persistEngineSnapshot();
       });
@@ -608,6 +655,7 @@ export class FactoryMatch {
       record.errorCode = result.success ? undefined : result.errorCode;
     }
     this.historyCursor = nextCursor;
+    this.creditJournalSequence = journal.movements.length;
   }
 
   /** The server-selected company, or an invariant failure. */
