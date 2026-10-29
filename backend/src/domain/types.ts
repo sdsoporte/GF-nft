@@ -22,7 +22,7 @@ export type LinePriority = 1 | 2 | 3;
 
 export type LineStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'NO_ENERGY';
 
-export type ContractStatus = 'PENDING' | 'ACTIVE' | 'FULFILLED' | 'DEFAULTED' | 'CANCELLED';
+export type ContractStatus = 'DRAFT' | 'PENDING' | 'ACTIVE' | 'FULFILLED' | 'DEFAULTED' | 'CANCELLED';
 
 export interface RecipeRequirement {
   readonly itemId: ItemId;
