@@ -1,10 +1,70 @@
-/** S4/S14: schema and immutable, validated journal openings. */
+/**
+ * S4/S14 — durable append-only credit journal (storage and audit foundation).
+ *
+ * What these tests pin, and what they deliberately do not:
+ *
+ * - the journal is a new schema version with an immutable per-match opening
+ *   (observed tick, COMPLETE for a new match / CUTOVER for legacy state and
+ *   typed observed balances) and append-only positive movements with a
+ *   contiguous per-match sequence and a stable unique event key;
+ * - an upgrade adds the tables and changes no legacy row, and backfills no
+ *   history: the journal starts empty even when contracts and credits exist;
+ * - movement kinds separate buyer escrow, seller collateral, delivery payment,
+ *   the market-fee sink, indemnity transfers, refunds and the contract-less
+ *   maintenance sink. The nullable contract column is never a uniqueness key,
+ *   and a penalty is a transfer between accounts, never a burned movement;
+ * - every rejected input has an exact code and leaves the stored rows (and the
+ *   surrounding snapshot) untouched;
+ * - `MatchStore.commitExecutions` can create the opening and append movements
+ *   inside its existing tick transaction, and a rejection rolls back the tick
+ *   metadata, the journal rows, the execution history and any queued removal.
+ *
+ * Math of a settlement (2% fee, partial delivery, default compensation) is a
+ * later integration unit; here a movement is only stored and read back.
+ */
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CreditLedgerValidationError, type CreditAccountRef, type CreditCompanyAccountRef, type CreditLedgerOpening } from '../../src/domain/creditLedger.ts';
-import { MIGRATIONS, getAppliedMigrations, getCurrentVersion, migrate } from '../../src/persistence/migrations.ts';
-import { CreditJournalError, createRepositories } from '../../src/persistence/repos/index.ts';
-import { COMPANY_FACTORY, COMPANY_METAL, CORE_STATE_TABLES, JOURNAL_STATE_TABLES, JOURNAL_MATCH_ID, countRows, sampleContract, sampleCreditOpening, seedCompanies, seedJournalMatch, snapshotState, withDatabase, withRepositories } from './repos-fixtures.ts';
+
+import {
+  CreditLedgerValidationError,
+  validateCreditMovement,
+  type CreditAccountRef,
+  type CreditCompanyAccountRef,
+  type CreditLedgerMovement,
+  type CreditLedgerOpening,
+} from '../../src/domain/creditLedger.ts';
+import { createMatchStore } from '../../src/persistence/matchStore.ts';
+import {
+  MIGRATIONS,
+  getAppliedMigrations,
+  getCurrentVersion,
+  migrate,
+} from '../../src/persistence/migrations.ts';
+import {
+  CreditJournalError,
+  createRepositories,
+  type CreditJournalMovementWrite,
+  type CreditJournalOpeningWrite,
+} from '../../src/persistence/repos/index.ts';
+import { runAtomic } from '../../src/persistence/transaction.ts';
+import {
+  COMPANY_FACTORY,
+  COMPANY_METAL,
+  CORE_STATE_TABLES,
+  JOURNAL_STATE_TABLES,
+  JOURNAL_MATCH_ID,
+  countRows,
+  sampleCompanyState,
+  sampleContract,
+  sampleCreditMovement,
+  sampleCreditOpening,
+  seedCompanies,
+  seedJournalMatch,
+  snapshotState,
+  withDatabase,
+  withRepositories,
+} from './repos-fixtures.ts';
 
 /** Versions 1-6: a database written before the credit journal existed. */
 const LEGACY_MIGRATIONS = MIGRATIONS.filter((migration) => migration.version <= 6);
@@ -15,6 +75,14 @@ function journalMigration() {
   return migration;
 }
 
+const AT_UTC = '2026-01-01T00:10:00.000Z';
+
+/** One escrow deposit from the sample buyer, with an optional override. */
+function deposit(overrides: Partial<CreditLedgerMovement> = {}): CreditLedgerMovement {
+  return sampleCreditMovement(overrides);
+}
+
+/** Assert a domain rejection: exact code plus the `CODE: detail` message shape. */
 function rejectsValidation(code: string): (error: unknown) => boolean {
   return (error: unknown): boolean => {
     assert.equal(
@@ -29,6 +97,7 @@ function rejectsValidation(code: string): (error: unknown) => boolean {
   };
 }
 
+/** Assert a persistence rejection: exact code plus the `CODE: detail` message shape. */
 function rejectsJournal(code: string): (error: unknown) => boolean {
   return (error: unknown): boolean => {
     assert.equal(
@@ -43,6 +112,59 @@ function rejectsJournal(code: string): (error: unknown) => boolean {
   };
 }
 
+test('fresh version-7 storage round-trips an immutable opening and ordered movements', () => {
+  withRepositories((repos, database) => {
+    assert.equal(getCurrentVersion(database), 7);
+    seedJournalMatch(repos, 10);
+
+    const openingRequest: CreditJournalOpeningWrite = { ...sampleCreditOpening(), openedAtUtc: AT_UTC };
+    const opening = repos.creditJournal.createOpening(openingRequest);
+    assert.deepEqual(opening, { ...sampleCreditOpening(), openedAtUtc: AT_UTC });
+    assert.deepEqual(repos.creditJournal.getOpening(JOURNAL_MATCH_ID), opening);
+
+    const movements: CreditJournalMovementWrite[] = [
+      deposit({ sequence: 1, eventKey: 'evt_deposit', tick: 5 }),
+      deposit({
+        sequence: 2,
+        eventKey: 'evt_collateral',
+        tick: 6,
+        kind: 'SELLER_COLLATERAL_DEPOSIT',
+        amountCredits: 240,
+        source: { kind: 'AVAILABLE', companyId: COMPANY_METAL },
+        destination: { kind: 'SELLER_COLLATERAL', companyId: COMPANY_METAL },
+      }),
+      // S10 shape: 200 delivered, 196 to the seller and 4 to the fee sink.
+      deposit({
+        sequence: 3,
+        eventKey: 'evt_delivery',
+        tick: 7,
+        kind: 'DELIVERY_PAYMENT',
+        amountCredits: 196,
+        source: { kind: 'BUYER_ESCROW', companyId: COMPANY_FACTORY },
+        destination: { kind: 'AVAILABLE', companyId: COMPANY_METAL },
+      }),
+      deposit({
+        sequence: 4,
+        eventKey: 'evt_fee',
+        tick: 7,
+        kind: 'FEE_SINK',
+        amountCredits: 4,
+        source: { kind: 'BUYER_ESCROW', companyId: COMPANY_FACTORY },
+        destination: { kind: 'MARKET_FEE_SINK' },
+      }),
+    ];
+    const stored = repos.creditJournal.append(
+      JOURNAL_MATCH_ID,
+      movements.map((movement) => ({ ...movement, recordedAtUtc: AT_UTC })),
+    );
+    assert.deepEqual(
+      stored,
+      movements.map((movement) => ({ ...movement, recordedAtUtc: AT_UTC })),
+    );
+    assert.deepEqual(repos.creditJournal.list(JOURNAL_MATCH_ID), stored);
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 4);
+  });
+});
 
 test('an existing opening is immutable: it cannot be replaced or rewritten', () => {
   withRepositories((repos, database) => {
@@ -71,6 +193,212 @@ test('an opening cannot be dated in the future of its match', () => {
       rejectsJournal('FUTURE_TICK'),
     );
     assert.equal(countRows(database, 'credit_ledger_openings'), 0);
+  });
+});
+
+test('unsafe movements are rejected with exact codes and write no row', () => {
+  withRepositories((repos) => {
+    seedJournalMatch(repos, 10);
+    repos.creditJournal.createOpening(sampleCreditOpening());
+    const base = deposit({ sequence: 1, eventKey: 'evt_valid', tick: 5 });
+
+    const cases: readonly (readonly [string, unknown, string])[] = [
+      ['match id blank', { matchId: '' }, 'INVALID_MATCH_ID'],
+      ['event key blank', { eventKey: '' }, 'INVALID_EVENT_KEY'],
+      ['sequence zero', { sequence: 0 }, 'INVALID_SEQUENCE'],
+      ['sequence negative', { sequence: -1 }, 'INVALID_SEQUENCE'],
+      ['sequence fractional', { sequence: 1.5 }, 'INVALID_SEQUENCE'],
+      ['tick negative', { tick: -1 }, 'INVALID_TICK'],
+      ['tick fractional', { tick: 5.5 }, 'INVALID_TICK'],
+      ['amount zero', { amountCredits: 0 }, 'INVALID_AMOUNT'],
+      ['amount negative', { amountCredits: -5 }, 'INVALID_AMOUNT'],
+      ['amount fractional', { amountCredits: 1.5 }, 'INVALID_AMOUNT'],
+      ['amount beyond safe integer', { amountCredits: Number.MAX_SAFE_INTEGER + 1 }, 'INVALID_AMOUNT'],
+      ['unknown movement kind', { kind: 'PENALTY_BURN' }, 'UNKNOWN_MOVEMENT_KIND'],
+      ['deposit without a contract', { contractId: undefined }, 'MISSING_CONTRACT_ID'],
+      ['deposit with a blank contract', { contractId: '  ' }, 'INVALID_CONTRACT_ID'],
+      ['source account missing', { source: undefined }, 'INVALID_ACCOUNT'],
+      ['source account kind unknown', { source: { kind: 'PENALTY_BURN' } }, 'INVALID_ACCOUNT_KIND'],
+      ['source company missing', { source: { kind: 'AVAILABLE' } }, 'INVALID_ACCOUNT_COMPANY'],
+      ['sink carrying a company', { destination: { kind: 'MARKET_FEE_SINK', companyId: COMPANY_METAL } },
+        'SINK_ACCOUNT_HAS_COMPANY'],
+      ['deposit routed out of escrow', { source: { kind: 'BUYER_ESCROW', companyId: COMPANY_FACTORY } },
+        'INVALID_MOVEMENT_ROUTE'],
+      ['deposit into another company escrow', { destination: { kind: 'BUYER_ESCROW', companyId: COMPANY_METAL } },
+        'MOVEMENT_COMPANY_MISMATCH'],
+    ];
+
+    for (const [label, patch, code] of cases) {
+      const invalid = { ...base, ...(patch as Record<string, unknown>) } as unknown as CreditLedgerMovement;
+      assert.throws(
+        () => repos.creditJournal.append(JOURNAL_MATCH_ID, [invalid]),
+        rejectsValidation(code),
+        label,
+      );
+      assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 0, label);
+    }
+  });
+});
+
+test('maintenance movements carry no contract id and stay distinct by event key', () => {
+  withRepositories((repos) => {
+    seedJournalMatch(repos, 10);
+    repos.creditJournal.createOpening(sampleCreditOpening());
+
+    const maintenance = (sequence: number, eventKey: string): CreditLedgerMovement => ({
+      matchId: JOURNAL_MATCH_ID,
+      sequence,
+      eventKey,
+      tick: 6,
+      kind: 'MAINTENANCE_SINK',
+      amountCredits: 10,
+      source: { kind: 'AVAILABLE', companyId: COMPANY_METAL },
+      destination: { kind: 'MAINTENANCE_SINK' },
+    });
+    const stored = repos.creditJournal.append(JOURNAL_MATCH_ID, [
+      maintenance(1, 'evt_maintenance_1'),
+      maintenance(2, 'evt_maintenance_2'),
+    ]);
+    assert.equal(stored.length, 2);
+    assert.equal('contractId' in stored[0], false);
+    assert.equal('contractId' in stored[1], false);
+
+    assert.throws(
+      () =>
+        repos.creditJournal.append(JOURNAL_MATCH_ID, [
+          { ...maintenance(3, 'evt_maintenance_3'), contractId: 'contract_1' },
+        ]),
+      rejectsValidation('UNEXPECTED_CONTRACT_ID'),
+    );
+  });
+});
+
+test('a penalty is a transfer from seller collateral to the buyer, never a burn', () => {
+  withRepositories((repos) => {
+    seedJournalMatch(repos, 10);
+    repos.creditJournal.createOpening(sampleCreditOpening());
+
+    const indemnity: CreditJournalMovementWrite = {
+      matchId: JOURNAL_MATCH_ID,
+      sequence: 1,
+      eventKey: 'evt_indemnity',
+      tick: 8,
+      contractId: 'contract_1',
+      kind: 'INDEMNITY_TRANSFER',
+      amountCredits: 60,
+      source: { kind: 'SELLER_COLLATERAL', companyId: COMPANY_METAL },
+      destination: { kind: 'AVAILABLE', companyId: COMPANY_FACTORY },
+      recordedAtUtc: AT_UTC,
+    };
+    assert.deepEqual(repos.creditJournal.append(JOURNAL_MATCH_ID, [indemnity]), [indemnity]);
+    assert.deepEqual(repos.creditJournal.list(JOURNAL_MATCH_ID), [indemnity]);
+
+    for (const kind of ['PENALTY_BURN', 'FEE_BURN']) {
+      assert.throws(
+        () => validateCreditMovement({ ...indemnity, kind } as CreditLedgerMovement),
+        rejectsValidation('UNKNOWN_MOVEMENT_KIND'),
+        kind,
+      );
+    }
+  });
+});
+
+test('duplicate event keys and reordered sequences roll back without keeping partial rows', () => {
+  withRepositories((repos) => {
+    seedJournalMatch(repos, 10);
+    repos.creditJournal.createOpening(sampleCreditOpening());
+
+    repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 1, eventKey: 'evt_1', tick: 5 })]);
+
+    // Reordered: the store expects sequence 2 before anything else.
+    assert.throws(
+      () => repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 3, eventKey: 'evt_3', tick: 6 })]),
+      rejectsJournal('SEQUENCE_OUT_OF_ORDER'),
+    );
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 1);
+
+    // A duplicate sequence inside one batch is rejected before the second insert.
+    assert.throws(
+      () =>
+        repos.creditJournal.append(JOURNAL_MATCH_ID, [
+          deposit({ sequence: 2, eventKey: 'evt_batch_a', tick: 6 }),
+          deposit({ sequence: 2, eventKey: 'evt_batch_b', tick: 6 }),
+        ]),
+      rejectsJournal('SEQUENCE_OUT_OF_ORDER'),
+    );
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 1);
+
+    // The first movement of the batch is inserted, then the repeated event key
+    // rejects the batch: the insertion must not survive the failure.
+    assert.throws(
+      () =>
+        repos.creditJournal.append(JOURNAL_MATCH_ID, [
+          deposit({ sequence: 2, eventKey: 'evt_dup', tick: 6 }),
+          deposit({ sequence: 3, eventKey: 'evt_dup', tick: 6 }),
+        ]),
+      rejectsJournal('DUPLICATE_EVENT_KEY'),
+    );
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 1);
+    assert.deepEqual(
+      repos.creditJournal.list(JOURNAL_MATCH_ID).map((movement) => movement.eventKey),
+      ['evt_1'],
+    );
+
+    // A duplicate of an already stored key is rejected even for the next sequence.
+    assert.throws(
+      () =>
+        repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 2, eventKey: 'evt_1', tick: 6 })]),
+      rejectsJournal('DUPLICATE_EVENT_KEY'),
+    );
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 1);
+  });
+});
+
+test('movements cannot predate the opening, postdate the match tick, or target another match', () => {
+  withRepositories((repos) => {
+    seedJournalMatch(repos, 10);
+    repos.creditJournal.createOpening(sampleCreditOpening({ observedAtTick: 4, coverage: 'CUTOVER' }));
+
+    assert.throws(
+      () => repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 1, eventKey: 'evt_past', tick: 3 })]),
+      rejectsJournal('TICK_BEFORE_OPENING'),
+    );
+    assert.throws(
+      () => repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 1, eventKey: 'evt_future', tick: 11 })]),
+      rejectsJournal('FUTURE_TICK'),
+    );
+    assert.throws(
+      () =>
+        repos.creditJournal.append(JOURNAL_MATCH_ID, [
+          deposit({ matchId: 'match_other', sequence: 1, eventKey: 'evt_other' }),
+        ]),
+      rejectsJournal('MATCH_MISMATCH'),
+    );
+    assert.throws(
+      () => repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 2, eventKey: 'evt_skipped', tick: 6 })]),
+      rejectsJournal('SEQUENCE_OUT_OF_ORDER'),
+    );
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 0);
+  });
+});
+
+test('movements require an existing opening', () => {
+  withRepositories((repos) => {
+    seedJournalMatch(repos, 10);
+    assert.throws(
+      () => repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 1, eventKey: 'evt_no_opening' })]),
+      rejectsJournal('OPENING_MISSING'),
+    );
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 0);
+  });
+});
+
+test('a movement for an unpersisted match is rejected', () => {
+  withRepositories((repos) => {
+    assert.throws(
+      () => repos.creditJournal.append('match_missing', [deposit({ matchId: 'match_missing' })]),
+      rejectsJournal('MATCH_UNKNOWN'),
+    );
   });
 });
 

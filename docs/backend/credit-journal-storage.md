@@ -63,10 +63,13 @@ bun test backend/tests/persistence/credit-journal.test.ts \\
 
 This schema cut verifies a populated version-6 upgrade with unchanged legacy
 rows and empty journal tables, repeat no-op, and complete post-DDL rollback.
-The opening repository API is now available through `createRepositories(db).creditJournal`:
-`createOpening`, `getOpening` (null before creation), and `count` (zero before any
-movement). An opening cannot be replaced or written in the future of its match.
-`CreditJournalError` carries `code` and a `CODE: detail` message (`OPENING_EXISTS`,
-`FUTURE_TICK`, `MATCH_UNKNOWN`); malformed records use `CreditLedgerValidationError`.
-Neither API mutates spendable credits. Movement append and the optional atomic
-batch follow in separate cuts; no game flow creates a live opening yet.
+The repository now provides `createOpening`, `getOpening`, `append`, `list`
+and `count` through `createRepositories(db).creditJournal`. Openings are
+immutable; movement batches are atomic, ordered by contiguous per-match sequence,
+and reject a reused event key. `list` strictly decodes records in journal order.
+
+`CreditJournalError` carries `code` and a `CODE: detail` message: unknown or
+mismatched match, missing/repeated opening, future/before-opening tick, sequence
+out of order, or duplicated event key. Malformed records use
+`CreditLedgerValidationError`. No API mutates spendable credits. The optional
+MatchStore batch follows separately; no game flow produces a live journal yet.
