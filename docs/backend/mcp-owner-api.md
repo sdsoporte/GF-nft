@@ -40,6 +40,7 @@ session; it does not bypass the grant-administration session check.
 | `POST /v1/owner/grants` | Owner-session bearer | 201: one-time `{ token, grant }`. |
 | `GET /v1/owner/grants/<id>` | Owner-session bearer | 200: `{ grant }`, or generic 404. |
 | `DELETE /v1/owner/grants/<id>` | Owner-session bearer | 200: `{ revoked: true }`, or generic 404. |
+| `POST /v1/owner/contracts/<id>/publish` | Owner-session bearer | 202: enqueue publication of an owned DRAFT on the next tick. |
 
 Missing, expired, revoked or wrong session bearers return the existing fixed 401
 `UNAUTHORIZED` response. A root bearer alone is also rejected by grant routes.
@@ -54,6 +55,40 @@ unset disables these routes and preserves the previous backend API/config
 shape. Compose forwards it optionally. Existing game endpoints retain the root
 bearer contract. See [issuance policy](mcp-grant-issuance.md) for TTL milliseconds,
 scopes, phase, quota and allowlist bounds.
+
+## Publish a proposed offer
+
+After inspecting an owned DRAFT proposal, the human uses the owner session, not
+an MCP grant or the root bearer directly:
+
+```bash
+draft_id=cnt_1_1 # Replace with the owned DRAFT ID.
+curl -fsS -X POST "http://127.0.0.1:8787/v1/owner/contracts/$draft_id/publish" \
+  -H "Authorization: Bearer $session" -H 'Content-Type: application/json' \
+  -d '{"idempotency_key":"publish_offer_0001"}'
+```
+
+The JSON body contains only `idempotency_key` (8–64 alphanumeric, underscore or
+dash characters). Client-supplied company, command type or other fields are
+rejected. The 202 body is `{ status: "ENQUEUED_FOR_NEXT_TICK", scheduledTick,
+contractId }`. It acknowledges command admission (durable when match
+persistence is configured), not completed publication.
+At the next tick, the engine rechecks ownership, future deadline and available
+collateral, then changes DRAFT to PENDING without locking funds.
+
+- Missing/root/grant/expired/logged-out bearers: fixed 401 `UNAUTHORIZED`.
+- Unknown, foreign or non-DRAFT offer: generic 404, without queue/sequence changes.
+- Invalid body fields/key: 400 `ERR_INVALID_PAYLOAD` / `Invalid publication request.`
+- Wrong media type: 415 `UNSUPPORTED_MEDIA_TYPE` /
+  `The publication request must be application/json.`
+- Bodies over 8192 bytes: 413; malformed JSON: existing fixed 400 response.
+- A reused command key: 409 `ERR_DUPLICATE_IDEMPOTENCY_KEY` /
+  `idempotency_key duplicate`; no second admission.
+
+Both drafts and queued publication survive an isolated persisted restart; owner
+sessions do not. See [draft rules](supply-contracts.md) and the
+[version-6 storage upgrade](contract-draft-storage.md). MCP has no publication
+or acceptance tool; `contracts:draft` is not financial approval.
 
 ## Server enforcement and recovery
 

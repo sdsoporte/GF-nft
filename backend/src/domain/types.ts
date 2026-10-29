@@ -127,6 +127,8 @@ export type CommandType =
   | 'RESUME_PRODUCTION_LINE'
   | 'SCHEDULE_INTERNAL_TRANSPORT'
   | 'CREATE_SUPPLY_OFFER'
+  | 'DRAFT_SUPPLY_OFFER'
+  | 'PUBLISH_SUPPLY_OFFER'
   | 'ACCEPT_SUPPLY_OFFER'
   | 'CANCEL_PENDING_OFFER'
   | 'INSTALL_TURBINE_EXPANSION'
@@ -179,6 +181,15 @@ export interface CreateSupplyOfferCommand extends BaseCommand {
   readonly deadlineTicks: number;
 }
 
+export interface DraftSupplyOfferCommand extends Omit<CreateSupplyOfferCommand, 'type'> {
+  readonly type: 'DRAFT_SUPPLY_OFFER';
+}
+
+export interface PublishSupplyOfferCommand extends BaseCommand {
+  readonly type: 'PUBLISH_SUPPLY_OFFER';
+  readonly contractId: string;
+}
+
 export interface AcceptSupplyOfferCommand extends BaseCommand {
   readonly type: 'ACCEPT_SUPPLY_OFFER';
   readonly contractId: string;
@@ -205,6 +216,8 @@ export type GameCommand =
   | ResumeProductionLineCommand
   | ScheduleInternalTransportCommand
   | CreateSupplyOfferCommand
+  | DraftSupplyOfferCommand
+  | PublishSupplyOfferCommand
   | AcceptSupplyOfferCommand
   | CancelPendingOfferCommand
   | InstallTurbineExpansionCommand

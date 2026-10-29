@@ -42,6 +42,8 @@ import {
   type AckLedgerWrite,
   type CommandResultRecord,
   type CommandResultWrite,
+  type CreditJournalMovementWrite,
+  type CreditJournalOpeningWrite,
   type MatchMetadataRecord,
   type MatchMetadataWrite,
   type ProcessedIdempotencyWrite,
@@ -103,6 +105,20 @@ export interface CommitExecutionsInput {
   readonly results: readonly CommandResultWrite[];
   /** Queue rows that reached the history and must be cleared. */
   readonly completedCommandIds: readonly string[];
+  /**
+   * Optional: create this match's immutable credit-journal opening as part of
+   * the same unit of work (S4/S14). Omitted keeps the previous behavior. A new
+   * match records a COMPLETE opening; an upgraded legacy match records CUTOVER
+   * with the balances observed at its tick.
+   */
+  readonly opening?: CreditJournalOpeningWrite;
+  /**
+   * Optional: append these journal movements inside the same tick transaction,
+   * so a rejected movement removes the tick metadata and history written before
+   * it. Omitted keeps the previous behavior. Requires an opening (the one in
+   * `opening` or an earlier committed one).
+   */
+  readonly movements?: readonly CreditJournalMovementWrite[];
 }
 
 function assertSameMatch(expected: string, actual: string, label: string): void {
@@ -200,15 +216,32 @@ export class MatchStore {
    * Persist one tick of progress: metadata, execution history and the queue
    * rows the history supersedes. A tick with no executed command still writes
    * the metadata, so `current_tick` and `history_cursor` never lag behind.
+   *
+   * When the caller supplies `opening`/`movements` the credit journal is written
+   * in the same transaction (S4/S14): the journal never records a tick the
+   * metadata refused, and a rejected movement rolls the metadata and history
+   * back with it. `companies.credits` is not touched here.
    */
   commitExecutions(input: CommitExecutionsInput): void {
     const matchId = input.metadata.matchId;
     for (const result of input.results) {
       assertSameMatch(matchId, result.matchId, 'command result');
     }
+    if (input.opening) {
+      assertSameMatch(matchId, input.opening.matchId, 'journal opening');
+    }
+    if (input.movements) {
+      for (const movement of input.movements) {
+        assertSameMatch(matchId, movement.matchId, 'journal movement');
+      }
+    }
 
     runAtomic(this.database, () => {
       this.repositories.matches.save(input.metadata);
+      if (input.opening) this.repositories.creditJournal.createOpening(input.opening);
+      if (input.movements) {
+        this.repositories.creditJournal.append(matchId, input.movements);
+      }
       this.repositories.commandResults.appendMany(input.results);
       this.repositories.queue.remove(matchId, input.completedCommandIds);
     });
