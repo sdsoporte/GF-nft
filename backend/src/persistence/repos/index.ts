@@ -20,6 +20,7 @@ import { CommandQueueRepository } from './commandQueue.ts';
 import { CommandResultRepository } from './commandResults.ts';
 import { CompanyRepository } from './companies.ts';
 import { ContractRepository } from './contracts.ts';
+import { CreditJournalRepository } from './creditJournal.ts';
 import { EscrowRepository } from './escrows.ts';
 import { GrantRepository } from './grants.ts';
 import { InventoryRepository } from './inventory.ts';
@@ -39,6 +40,13 @@ export { CommandQueueRepository } from './commandQueue.ts';
 export { CommandResultRepository } from './commandResults.ts';
 export { CompanyRepository } from './companies.ts';
 export { ContractRepository, type ContractListFilter } from './contracts.ts';
+export {
+  CreditJournalError,
+  CreditJournalRepository,
+  isCreditJournalError,
+  isCreditLedgerValidationError,
+  type CreditJournalErrorCode,
+} from './creditJournal.ts';
 export { EscrowRepository, type EscrowListFilter } from './escrows.ts';
 export { GrantRepository, type AuditListFilter, type GrantListFilter } from './grants.ts';
 export { InventoryRepository } from './inventory.ts';
@@ -58,6 +66,12 @@ export class Repositories {
   readonly inventory: InventoryRepository;
   readonly lines: ProductionLineRepository;
   readonly contracts: ContractRepository;
+  /**
+   * Append-only credit journal (S4/S14): immutable per-match opening plus typed
+   * monetary movements. Storage and audit only; `companies.credits` stays
+   * authoritative and no settlement math lives here.
+   */
+  readonly creditJournal: CreditJournalRepository;
   readonly lots: LotRepository;
   readonly escrows: EscrowRepository;
   readonly reservations: ReservationRepository;
@@ -76,6 +90,7 @@ export class Repositories {
     this.inventory = new InventoryRepository(database);
     this.lines = new ProductionLineRepository(database);
     this.contracts = new ContractRepository(database);
+    this.creditJournal = new CreditJournalRepository(database);
     this.lots = new LotRepository(database);
     this.escrows = new EscrowRepository(database);
     this.reservations = new ReservationRepository(database);
