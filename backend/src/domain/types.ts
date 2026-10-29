@@ -240,6 +240,7 @@ export interface CommandExecutionResult {
 export interface SimulationSnapshot {
   readonly tick: number;
   readonly stateHash: string;
+  readonly checksumSha256?: string;
   readonly companies: Record<string, CompanyState>;
   readonly contracts: Record<string, SupplyContract>;
   readonly globalProject: GlobalProjectState;

@@ -38,6 +38,7 @@ import {
 } from '../domain/types.ts';
 import type { CreditAccountRef, CreditLedgerMovement } from '../domain/creditLedger.ts';
 import { EngineCreditJournal, createEngineCreditOpening, type EngineCreditJournalState } from './EngineCreditJournal.ts';
+import { computeStateChecksumSha256, extractCanonicalSimulationState } from './replay/canonicalState.ts';
 
 /**
  * Deterministic PRNG: Mulberry32
@@ -1704,6 +1705,13 @@ export class SimulatorEngine {
   }
 
   /**
+   * Complete, collision-resistant canonical state checksum (SHA-256) for durable replay (issue #11).
+   */
+  public calculateStateChecksumSha256(ruleVersion: string = '4.1'): string {
+    return computeStateChecksumSha256(extractCanonicalSimulationState(this, ruleVersion));
+  }
+
+  /**
    * Create deep frozen snapshot of simulation state
    */
   public createSnapshot(): SimulationSnapshot {
@@ -1720,6 +1728,7 @@ export class SimulatorEngine {
     return {
       tick: this.currentTick,
       stateHash: this.calculateStateHash(),
+      checksumSha256: this.calculateStateChecksumSha256(),
       companies: companiesSnapshot,
       contracts: contractsSnapshot,
       globalProject: { ...this.globalProject },
