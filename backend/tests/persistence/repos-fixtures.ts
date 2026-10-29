@@ -39,8 +39,10 @@ export const COMPANY_FACTORY = 'comp_factory_02';
 /**
  * Tables whose contents must survive (or be rolled back from) a write, with
  * their literal read statements (no identifier interpolation anywhere).
+ * `CORE_STATE_TABLES` are the baseline (versions 1-6) tables, so a migration
+ * test can snapshot a database that does not have the version-7 journal yet.
  */
-const STATE_TABLE_SQL = {
+const CORE_STATE_TABLE_SQL = {
   companies: 'SELECT rowid, * FROM companies ORDER BY rowid',
   inventories: 'SELECT rowid, * FROM inventories ORDER BY rowid',
   production_lines: 'SELECT rowid, * FROM production_lines ORDER BY rowid',
@@ -52,9 +54,27 @@ const STATE_TABLE_SQL = {
   mcp_audit_logs: 'SELECT rowid, * FROM mcp_audit_logs ORDER BY rowid',
 } as const;
 
-export type StateTable = keyof typeof STATE_TABLE_SQL;
+/** Version-7 add-on: the append-only credit journal (S4/S14). */
+const JOURNAL_STATE_TABLE_SQL = {
+  credit_ledger_openings: 'SELECT rowid, * FROM credit_ledger_openings ORDER BY rowid',
+  credit_ledger_opening_balances: 'SELECT rowid, * FROM credit_ledger_opening_balances ORDER BY rowid',
+  credit_ledger_movements: 'SELECT rowid, * FROM credit_ledger_movements ORDER BY rowid',
+} as const;
 
-export const STATE_TABLES = Object.keys(STATE_TABLE_SQL) as readonly StateTable[];
+export type StateTable =
+  | keyof typeof CORE_STATE_TABLE_SQL
+  | keyof typeof JOURNAL_STATE_TABLE_SQL;
+
+const STATE_TABLE_SQL: Record<StateTable, string> = {
+  ...CORE_STATE_TABLE_SQL,
+  ...JOURNAL_STATE_TABLE_SQL,
+};
+
+export const CORE_STATE_TABLES = Object.keys(CORE_STATE_TABLE_SQL) as readonly StateTable[];
+
+export const JOURNAL_STATE_TABLES = Object.keys(JOURNAL_STATE_TABLE_SQL) as readonly StateTable[];
+
+export const STATE_TABLES: readonly StateTable[] = [...CORE_STATE_TABLES, ...JOURNAL_STATE_TABLES];
 
 /** Run `work` against a migrated database in a unique temp directory. */
 export function withRepositories(work: (repos: Repositories, database: Database) => void): void {
@@ -81,9 +101,12 @@ export function withDatabase(work: (database: Database, path: string) => void): 
  * Content of every state table, in insertion order, for "the database is
  * unchanged afterwards" assertions (S4/S7).
  */
-export function snapshotState(database: Database): Record<string, unknown[]> {
+export function snapshotState(
+  database: Database,
+  tables: readonly StateTable[] = STATE_TABLES,
+): Record<string, unknown[]> {
   const snapshot: Record<string, unknown[]> = {};
-  for (const table of STATE_TABLES) {
+  for (const table of tables) {
     snapshot[table] = database.query(STATE_TABLE_SQL[table]).all() as unknown[];
   }
   return snapshot;
@@ -257,6 +280,27 @@ export function seedLotPair(repos: Repositories): {
   });
   const lot = repos.lots.save(sampleLot());
   return { reservation, lot };
+}
+
+/** The match every credit-journal fixture hangs off; `seedJournalMatch` persists it. */
+export const JOURNAL_MATCH_ID = 'match_ledger';
+
+/** Persist a match row so journal foreign keys and tick checks have a target. */
+export function seedJournalMatch(
+  repos: Repositories,
+  currentTick = 10,
+  matchId: string = JOURNAL_MATCH_ID,
+): void {
+  repos.matches.save({
+    matchId,
+    seed: 42,
+    currentTick,
+    sequenceCounter: 0,
+    historyCursor: 0,
+    tickIntervalMs: 1000,
+    createdAtUtc: '2026-01-01T00:00:00.000Z',
+    updatedAtUtc: '2026-01-01T00:05:00.000Z',
+  });
 }
 
 export function sampleGrant(overrides: Partial<McpGrant> = {}): McpGrant {

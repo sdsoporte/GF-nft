@@ -67,6 +67,9 @@ External MCP transport/catalog remains separate (#9); embedding callers use the
 server-owned gateway, whose commands are persisted before acknowledgement.
 Migration 5 retires all legacy grants: plan reissuance before any deployment.
 Migration 6 adds durable DRAFT contracts; MCP cannot publish or accept offers.
+Migration 7 adds append-only credit-journal storage: one immutable opening per
+match and typed monetary movements. It writes no movement of its own and does
+not settle contracts yet; companies.credits remains the spendable balance.
 
 The server owns the clock and advances one tick per second. With
 ${SQLITE_PATH_ENV_VAR} set, acknowledged requests and command results survive a

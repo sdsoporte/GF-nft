@@ -142,7 +142,8 @@ test('migration 2 keeps version 1 intact and is the only schema delta', () => {
     migrate(database);
     assert.deepEqual(
       listTables(),
-      [...tablesBefore, 'account_nonces', 'settlement_counters'].sort(),
+      [...tablesBefore, 'account_nonces', 'credit_ledger_movements',
+        'credit_ledger_opening_balances', 'credit_ledger_openings', 'settlement_counters'].sort(),
     );
   });
 });
