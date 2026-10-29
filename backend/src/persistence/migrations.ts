@@ -27,6 +27,8 @@ import { COMMAND_RESULT_TENANT_MIGRATION } from './migrations/004_command_result
 import { MCP_GRANT_TOKEN_HASH_MIGRATION } from './migrations/005_mcp_grant_token_hash.ts';
 import { CONTRACT_DRAFT_STATUS_MIGRATION } from './migrations/006_contract_draft_status.ts';
 import { CREDIT_JOURNAL_MIGRATION } from './migrations/007_credit_journal.ts';
+import { MCP_POLICY_EVENTS_MIGRATION } from './migrations/008_mcp_policy_events.ts';
+import { REPLAY_SNAPSHOTS_MIGRATION } from './migrations/009_replay_snapshots.ts';
 
 export interface Migration {
   readonly version: number;
@@ -76,6 +78,8 @@ export const MIGRATIONS: readonly Migration[] = [
   MCP_GRANT_TOKEN_HASH_MIGRATION,
   CONTRACT_DRAFT_STATUS_MIGRATION,
   CREDIT_JOURNAL_MIGRATION,
+  MCP_POLICY_EVENTS_MIGRATION,
+  REPLAY_SNAPSHOTS_MIGRATION,
 ];
 
 interface AppliedRow {

@@ -3,7 +3,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { REPLAY_SNAPSHOTS_MIGRATION } from '../migrations/008_replay_snapshots.ts';
+import { REPLAY_SNAPSHOTS_MIGRATION } from '../migrations/009_replay_snapshots.ts';
 
 export interface ReplaySnapshotRecord {
   readonly snapshotId: string;

@@ -1,5 +1,5 @@
 /**
- * Migration 008: Durable Replay Snapshots (issue #11).
+ * Migration 009: Durable Replay Snapshots (issue #11).
  *
  * Persists periodic simulation checkpoints and canonical state JSON with
  * cryptographic SHA-256 checksums to enable exact match replay and recovery.
@@ -8,8 +8,8 @@
 import type { Migration } from '../migrations.ts';
 
 export const REPLAY_SNAPSHOTS_MIGRATION: Migration = {
-  version: 8,
-  name: '008_replay_snapshots',
+  version: 9,
+  name: 'replay_snapshots',
   sql: `CREATE TABLE IF NOT EXISTS match_snapshots (
     snapshot_id TEXT PRIMARY KEY,
     match_id TEXT NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
