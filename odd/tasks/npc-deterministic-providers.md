@@ -13,14 +13,12 @@ Source: GitHub issue #13 "[P2][NPC/Economía] Implementar proveedores NPC determ
 - **S4** — Determinism and reproducibility: all NPC actions, prices, and match trajectories repeat byte-for-byte across runs given the same fixed PRNG seed.
 - **S5** — 2700-tick simulation & energy balance: simulate 2700 ticks, observe economic decisions, measure energy utilization across 3 lines vs 4 lines (R7 installation), and evaluate the strategic return of installing R7 turbines.
 
-## Product Questions (Open Decisions for Human Review)
+## Approved Product Decisions (Human Approved)
 
-Per task constraints, product decisions are not invented; they are captured here for the human:
-1. **NPC Pricing Formula**: Currently defaults to recipe unit base cost plus a deterministic margin (`unitBaseCost * (1 + priceMarginPercent / 100)`). Question for product: Should NPC offer pricing be fixed margin over base cost, or should price dynamically respond to remaining tick duration and inventory scarcity?
-2. **Target Buffer Reserve**: Currently defaults to 30 RAW_ORE, 10 IRON_INGOT, 8 STEEL_PLATE for Class A; 10 IRON_INGOT, 10 STEEL_PLATE, 4 MECH_FRAME, 4 CTRL_CIRCUIT for Class B. Question for product: What safety stock buffer should NPCs hold for their own production before offering surplus to the market?
-3. **NPC Purchase Willingness**: Currently allows buying required inputs up to +25% markup over base cost. Question for product: What maximum price multiplier should NPCs pay human suppliers?
-4. **Turbine R7 Strategy**: Currently installs R7 automatically at tick >= 900 if in inventory. Question for product: Should NPCs prioritize installing R7 immediately, selling it for credits, or contributing it to R8 megamachine assembly?
-5. **Base Energy Balance (+20 vs +10/12)**: Simulation shows that with +20 base generation and 3 lines, energy rarely starves on basic recipes (~8-10 energy/tick spent). Question for game balance: Should base energy generation be reduced to +10 or +12/tick to make R7 turbines vital earlier, rather than only under heavy 4-line manufacturing?
+1. **NPC Sell Price (Decision 1)**: Selling price formula is `costoBase * (1 + margin)` with a fixed margin of 20% (`DEFAULT_NPC_SELL_MARGIN_PERCENT = 20`). Covers the 20% collateral requirement and 2% market burn fee.
+2. **Initial Stock Retention (Decision 2)**: NPCs retain exactly 50% of their initial starting stock per item (`NPC_INITIAL_STOCK_RETENTION_RATIO = 0.5`) before releasing surplus to market offers.
+3. **Max Buy Price for NPC Buyers (Decision 3)**: NPC buyers pay at most 1.0× recipe base cost (`DEFAULT_NPC_MAX_BUY_PRICE_MARGIN_PERCENT = 0`). Any offer priced above base cost is rejected by NPC buyers.
+4. **Base Energy Generation (Decision 4)**: Maintained at +20 ENERGY/tick in the engine (`BASE_ENERGY_GENERATION_PER_TICK = 20`).
 
 ## Tasks
 
@@ -28,4 +26,5 @@ Per task constraints, product decisions are not invented; they are captured here
 - **T2** [S1,S2,S3] — **done** — NPC Controller and command orchestration (`backend/src/engine/npc/NpcController.ts`). Route: inline. Evidence: registers default NPC companies, steps ticks deterministically, submits valid engine commands.
 - **T3** [S1,S3,S4] — **done** — Test-first unit and determinism test suite with fixed seed (`backend/tests/engine/npc/npc-policy.test.ts`, `backend/tests/engine/npc/npc-controller.test.ts`, `backend/tests/engine/npc/npc-determinism.test.ts`). Route: inline. Evidence: byte-identical checkpoint comparison across runs with identical seed, invariants verified over 500 ticks, multi-source supply verified.
 - **T4** [S2,S3,S5] — **done** — 2700-tick full match simulation and energy balance evaluation suite (`backend/src/engine/npc/balanceEvaluation.ts`, `backend/tests/engine/npc/npc-balance-evaluation.test.ts`). Route: inline. Evidence: 2700 ticks simulated in ~180ms, trade decisions observable, R7 expansion tested, specialization penalties (+80% to +120%) verified.
-- **T5** [S1-S5] — **done** — Final verification (`bun test`, `bun run lint`, `bun run build` in green), Engram findings persistence, and criteria report. Route: inline. Evidence: 626 tests passing, lint 0, build 0.
+- **T5** [S1-S5] — **done** — Final verification (`bun test`, `bun run lint`, `bun run build` in green), Engram findings persistence, and criteria report. Route: inline. Commit: `3e65943`. Evidence: 626 tests passing, lint 0, build 0.
+- **T6** [S1,S3,S5] — **done** — Parameterize approved product decisions in `types.ts`, update controllers, and add dedicated verification tests (`backend/tests/engine/npc/npc-policy.test.ts`). Route: inline. Evidence: 628 tests passing, lint 0, build 0.

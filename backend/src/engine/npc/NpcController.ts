@@ -1,24 +1,25 @@
 /**
  * GigaForge v4.1 - NPC Controller
- * Orchestrates deterministic NPC participants within an active match.
+ * Orchestrates deterministic NPC participants within an active match with approved product settings.
  */
 
 import { EnqueueCommandInput, RecipeId, SimulationSnapshot } from '../../domain/types.ts';
 import { Mulberry32PRNG, SimulatorEngine } from '../SimulatorEngine.ts';
 import { DeterministicNpcPolicy } from './DeterministicNpcPolicy.ts';
-import { NpcCompanyConfig } from './types.ts';
+import {
+  computeTargetBufferFromInitialStock,
+  DEFAULT_NPC_MAX_BUY_PRICE_MARGIN_PERCENT,
+  DEFAULT_NPC_SELL_MARGIN_PERCENT,
+  DEFAULT_STARTING_STOCK,
+  NpcCompanyConfig,
+} from './types.ts';
 
 export const DEFAULT_NPC_CONFIG_CLASS_A: NpcCompanyConfig = Object.freeze({
   companyId: 'comp_metal_02',
-  targetBuffer: Object.freeze({
-    RAW_ORE: 30,
-    IRON_INGOT: 10,
-    STEEL_PLATE: 8,
-    HEAVY_ALLOY: 4,
-  }),
+  targetBuffer: Object.freeze(computeTargetBufferFromInitialStock(DEFAULT_STARTING_STOCK)),
   preferredRecipes: Object.freeze<RecipeId[]>(['R1', 'R2', 'R3']),
-  priceMarginPercent: 15,
-  maxBuyPriceMarginPercent: 25,
+  priceMarginPercent: DEFAULT_NPC_SELL_MARGIN_PERCENT,
+  maxBuyPriceMarginPercent: DEFAULT_NPC_MAX_BUY_PRICE_MARGIN_PERCENT,
   offerBatchSizes: Object.freeze({
     IRON_INGOT: 5,
     STEEL_PLATE: 4,
@@ -32,17 +33,10 @@ export const DEFAULT_NPC_CONFIG_CLASS_A: NpcCompanyConfig = Object.freeze({
 
 export const DEFAULT_NPC_CONFIG_CLASS_B: NpcCompanyConfig = Object.freeze({
   companyId: 'comp_manuf_02',
-  targetBuffer: Object.freeze({
-    IRON_INGOT: 10,
-    STEEL_PLATE: 10,
-    MECH_FRAME: 4,
-    CTRL_CIRCUIT: 4,
-    POWER_MODULE: 2,
-    IND_TURBINE: 1,
-  }),
+  targetBuffer: Object.freeze(computeTargetBufferFromInitialStock(DEFAULT_STARTING_STOCK)),
   preferredRecipes: Object.freeze<RecipeId[]>(['R4', 'R5', 'R6', 'R7']),
-  priceMarginPercent: 15,
-  maxBuyPriceMarginPercent: 25,
+  priceMarginPercent: DEFAULT_NPC_SELL_MARGIN_PERCENT,
+  maxBuyPriceMarginPercent: DEFAULT_NPC_MAX_BUY_PRICE_MARGIN_PERCENT,
   offerBatchSizes: Object.freeze({
     MECH_FRAME: 2,
     CTRL_CIRCUIT: 2,

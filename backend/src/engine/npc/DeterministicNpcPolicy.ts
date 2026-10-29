@@ -241,7 +241,7 @@ export class DeterministicNpcPolicy {
     return false;
   }
 
-  private calculateSellPrice(itemId: ItemId): number {
+  public calculateSellPrice(itemId: ItemId): number {
     const recipe = Object.values(RECIPE_CATALOG).find((r) => r.outputItem === itemId);
     const baseCost = recipe ? recipe.estimatedBaseCostCredits : 50;
     const outputQty = recipe ? recipe.outputQuantity : 1;
@@ -249,7 +249,7 @@ export class DeterministicNpcPolicy {
     return Math.max(1, Math.round(baseUnitCost * (1 + this.config.priceMarginPercent / 100)));
   }
 
-  private calculateMaxBuyPrice(itemId: ItemId): number {
+  public calculateMaxBuyPrice(itemId: ItemId): number {
     const recipe = Object.values(RECIPE_CATALOG).find((r) => r.outputItem === itemId);
     const baseCost = recipe ? recipe.estimatedBaseCostCredits : 50;
     const outputQty = recipe ? recipe.outputQuantity : 1;
