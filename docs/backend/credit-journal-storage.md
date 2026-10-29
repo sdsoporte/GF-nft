@@ -63,5 +63,10 @@ bun test backend/tests/persistence/credit-journal.test.ts \\
 
 This schema cut verifies a populated version-6 upgrade with unchanged legacy
 rows and empty journal tables, repeat no-op, and complete post-DDL rollback.
-Repository opening/movement APIs and the optional atomic batch follow in separate
-review cuts; this cut creates no live opening or movement.
+The opening repository API is now available through `createRepositories(db).creditJournal`:
+`createOpening`, `getOpening` (null before creation), and `count` (zero before any
+movement). An opening cannot be replaced or written in the future of its match.
+`CreditJournalError` carries `code` and a `CODE: detail` message (`OPENING_EXISTS`,
+`FUTURE_TICK`, `MATCH_UNKNOWN`); malformed records use `CreditLedgerValidationError`.
+Neither API mutates spendable credits. Movement append and the optional atomic
+batch follow in separate cuts; no game flow creates a live opening yet.
