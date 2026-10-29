@@ -42,10 +42,10 @@ Environment:
   ${OWNER_ID_ENV_VAR}   Optional single-owner identity (1-64 ASCII letters, digits,
                 underscores or dashes). Empty/unset disables owner/MCP routes.
   ${SQLITE_PATH_ENV_VAR}  Optional SQLite file that stores the match identity, the
-                command queue, idempotency keys, acknowledgements and command
-                results. Its parent directory is created on boot and the schema
-                is migrated before the server listens. Unset keeps the match
-                in memory only.
+                command queue, idempotency keys, acknowledgements, command
+                results and the credit journal. Its parent directory is created
+                on boot and the schema is migrated before the server listens.
+                Unset keeps the match in memory only.
 
 Game endpoints require "Authorization: Bearer <${TOKEN_ENV_VAR}>":
   GET  /health              Liveness and protocol version; no credentials.
@@ -67,6 +67,13 @@ External MCP transport/catalog remains separate (#9); embedding callers use the
 server-owned gateway, whose commands are persisted before acknowledgement.
 Migration 5 retires all legacy grants: plan reissuance before any deployment.
 Migration 6 adds durable DRAFT contracts; MCP cannot publish or accept offers.
+Migration 7 adds append-only credit-journal storage: one immutable opening per
+match and typed monetary movements. The migration only creates empty tables and
+changes no credits or balances. The running match settles each delivered value
+net of the 2% market fee and, with a SQLite file, persists those movements. A
+new match is COMPLETE from tick 0; an adopted legacy match is CUTOVER, opened at
+its observed balances while earlier history stays unverified. companies.credits
+remains the authoritative spendable balance.
 
 The server owns the clock and advances one tick per second. With
 ${SQLITE_PATH_ENV_VAR} set, acknowledged requests and command results survive a
