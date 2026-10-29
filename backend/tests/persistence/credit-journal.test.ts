@@ -196,6 +196,8 @@ test('an opening cannot be dated in the future of its match', () => {
   });
 });
 
+
+
 test('unsafe movements are rejected with exact codes and write no row', () => {
   withRepositories((repos) => {
     seedJournalMatch(repos, 10);
@@ -556,5 +558,154 @@ test('a failed migration 7 rolls back its tables and version before a clean appl
     assert.deepEqual(snapshotState(database, CORE_STATE_TABLES), coreBefore);
     repos.contracts.save({ ...sampleContract(), contractId: 'contract_after_upgrade' });
     assert.equal(repos.contracts.list().length, 2);
+  });
+});
+
+test('commitExecutions without journal arguments keeps the existing behavior', () => {
+  withRepositories((repos, database) => {
+    const store = createMatchStore(database, repos);
+    const adopted = store.adoptOrCreate({ matchId: JOURNAL_MATCH_ID, seed: 42, tickIntervalMs: 1000 });
+    assert.equal(adopted.adopted, false);
+
+    store.commitExecutions({
+      metadata: { ...adopted.metadata, currentTick: 1, historyCursor: 1 },
+      results: [
+        {
+          matchId: JOURNAL_MATCH_ID,
+          historyIndex: 0,
+          commandId: 'cmd_1',
+          idempotencyKey: 'key_1',
+          executedAtTick: 1,
+          success: true,
+        },
+      ],
+      completedCommandIds: [],
+    });
+
+    assert.equal(repos.matches.load(JOURNAL_MATCH_ID)?.currentTick, 1);
+    assert.equal(repos.commandResults.count(JOURNAL_MATCH_ID), 1);
+    assert.equal(repos.creditJournal.getOpening(JOURNAL_MATCH_ID), null);
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 0);
+    assert.equal(countRows(database, 'credit_ledger_movements'), 0);
+  });
+});
+
+test('commitExecutions writes the opening and movements inside its tick transaction', () => {
+  withRepositories((repos, database) => {
+    const store = createMatchStore(database, repos);
+    seedCompanies(repos);
+    const adopted = store.adoptOrCreate({ matchId: JOURNAL_MATCH_ID, seed: 42, tickIntervalMs: 1000 });
+    assert.equal(adopted.adopted, false);
+
+    const movements: CreditJournalMovementWrite[] = [
+      deposit({ sequence: 1, eventKey: 'evt_tick_deposit', tick: 4 }),
+      deposit({
+        sequence: 2,
+        eventKey: 'evt_tick_delivery',
+        tick: 5,
+        kind: 'DELIVERY_PAYMENT',
+        amountCredits: 196,
+        source: { kind: 'BUYER_ESCROW', companyId: COMPANY_FACTORY },
+        destination: { kind: 'AVAILABLE', companyId: COMPANY_METAL },
+      }),
+    ];
+
+    store.commitExecutions({
+      metadata: { ...adopted.metadata, currentTick: 5, historyCursor: 1 },
+      results: [
+        {
+          matchId: JOURNAL_MATCH_ID,
+          historyIndex: 0,
+          commandId: 'cmd_tick',
+          idempotencyKey: 'key_tick',
+          executedAtTick: 5,
+          success: true,
+        },
+      ],
+      completedCommandIds: [],
+      opening: sampleCreditOpening({ matchId: JOURNAL_MATCH_ID, observedAtTick: 0 }),
+      movements,
+    });
+
+    assert.equal(repos.matches.load(JOURNAL_MATCH_ID)?.currentTick, 5);
+    assert.equal(repos.matches.load(JOURNAL_MATCH_ID)?.historyCursor, 1);
+    assert.deepEqual(repos.creditJournal.getOpening(JOURNAL_MATCH_ID), {
+      ...sampleCreditOpening({ matchId: JOURNAL_MATCH_ID }),
+      openedAtUtc: repos.creditJournal.getOpening(JOURNAL_MATCH_ID)?.openedAtUtc,
+    });
+    assert.deepEqual(
+      repos.creditJournal.list(JOURNAL_MATCH_ID).map(({ recordedAtUtc: _recordedAtUtc, ...rest }) => rest),
+      movements,
+    );
+    assert.equal(repos.commandResults.count(JOURNAL_MATCH_ID), 1);
+  });
+});
+
+test('a rejected settlement batch rolls back the tick metadata, history and journal rows', () => {
+  withRepositories((repos, database) => {
+    const store = createMatchStore(database, repos);
+    seedCompanies(repos);
+    const adopted = store.adoptOrCreate({ matchId: JOURNAL_MATCH_ID, seed: 42, tickIntervalMs: 1000 });
+    const before = snapshotState(database);
+    const metadataBefore = repos.matches.load(JOURNAL_MATCH_ID);
+
+    assert.throws(
+      () =>
+        store.commitExecutions({
+          metadata: { ...adopted.metadata, currentTick: 5, historyCursor: 2 },
+          results: [
+            {
+              matchId: JOURNAL_MATCH_ID,
+              historyIndex: 0,
+              commandId: 'cmd_rollback',
+              idempotencyKey: 'key_rollback',
+              executedAtTick: 5,
+              success: true,
+            },
+          ],
+          completedCommandIds: [],
+          opening: sampleCreditOpening({ matchId: JOURNAL_MATCH_ID }),
+          movements: [
+            deposit({ sequence: 1, eventKey: 'evt_repeat', tick: 4 }),
+            deposit({ sequence: 2, eventKey: 'evt_repeat', tick: 5 }),
+          ],
+        }),
+      rejectsJournal('DUPLICATE_EVENT_KEY'),
+    );
+
+    assert.deepEqual(snapshotState(database), before);
+    assert.deepEqual(repos.matches.load(JOURNAL_MATCH_ID), metadataBefore);
+    assert.equal(repos.commandResults.count(JOURNAL_MATCH_ID), 0);
+    assert.equal(repos.creditJournal.getOpening(JOURNAL_MATCH_ID), null);
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 0);
+    assert.equal(countRows(database, 'credit_ledger_openings'), 0);
+    assert.deepEqual(repos.companies.load(COMPANY_METAL), sampleCompanyState());
+  });
+});
+
+test('a journal batch composed with a credit debit rolls back together', () => {
+  withRepositories((repos, database) => {
+    seedCompanies(repos);
+    seedJournalMatch(repos, 10);
+    const before = snapshotState(database);
+    const creditsBefore = repos.companies.load(COMPANY_FACTORY)?.credits;
+
+    assert.throws(
+      () =>
+        runAtomic(database, () => {
+          repos.creditJournal.createOpening(sampleCreditOpening());
+          repos.creditJournal.append(JOURNAL_MATCH_ID, [deposit({ sequence: 1, eventKey: 'evt_atomic' })]);
+          database
+            .query('UPDATE companies SET credits = credits - 600 WHERE company_id = ?')
+            .run(COMPANY_FACTORY);
+          throw new Error('induced settlement failure');
+        }),
+      /induced settlement failure/,
+    );
+
+    assert.deepEqual(snapshotState(database), before);
+    assert.equal(repos.companies.load(COMPANY_FACTORY)?.credits, creditsBefore);
+    assert.equal(repos.creditJournal.getOpening(JOURNAL_MATCH_ID), null);
+    assert.equal(repos.creditJournal.count(JOURNAL_MATCH_ID), 0);
   });
 });

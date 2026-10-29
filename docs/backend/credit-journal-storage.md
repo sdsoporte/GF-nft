@@ -54,15 +54,8 @@ movement.
 - Do not run an older build against a version-7 database; the runner refuses a
   database newer than the build.
 
-## Verify on disposable state
+## Repository API
 
-```sh
-bun test backend/tests/persistence/credit-journal.test.ts \\
-  backend/tests/persistence/draft-status-migration.test.ts
-```
-
-This schema cut verifies a populated version-6 upgrade with unchanged legacy
-rows and empty journal tables, repeat no-op, and complete post-DDL rollback.
 The repository now provides `createOpening`, `getOpening`, `append`, `list`
 and `count` through `createRepositories(db).creditJournal`. Openings are
 immutable; movement batches are atomic, ordered by contiguous per-match sequence,
@@ -71,5 +64,35 @@ and reject a reused event key. `list` strictly decodes records in journal order.
 `CreditJournalError` carries `code` and a `CODE: detail` message: unknown or
 mismatched match, missing/repeated opening, future/before-opening tick, sequence
 out of order, or duplicated event key. Malformed records use
-`CreditLedgerValidationError`. No API mutates spendable credits. The optional
-MatchStore batch follows separately; no game flow produces a live journal yet.
+`CreditLedgerValidationError`. No API mutates spendable credits. No game flow produces a live journal yet.
+
+## Atomic tick composition
+
+`MatchStore.commitExecutions({ metadata, results, completedCommandIds, opening?, movements? })`
+saves optional opening/movements in the same transaction as tick metadata,
+execution history and queue removal. Both journal arguments must belong to
+`metadata.matchId`; a foreign one is rejected with the existing
+`MatchStore received a ... for match ... inside the unit of work of ...` error.
+Movements require this batch's opening or an earlier committed opening. Even an
+explicit empty movement array requires an opening; omit both arguments to keep
+the old behavior exactly. No implicit opening or backfill is created.
+
+The caller still owns the in-memory checkpoint and actual credits. The combined
+seam test supplies records at this public boundary, forces a later history write
+to fail, and checks A's engine restoration plus B's database rollback and retry.
+It is not a runtime journal producer or a settlement implementation.
+
+## Verify on disposable state
+
+```sh
+bun test backend/tests/persistence/credit-journal.test.ts \
+  backend/tests/persistence/draft-status-migration.test.ts \
+  backend/tests/persistence/repos-atomicity.test.ts \
+  backend/tests/persistence/credit-journal-tick-seam.test.ts
+```
+
+The tests use fresh or disposable databases and public APIs only: fresh version
+7, a populated version-6 upgrade with no journal backfill, repeat no-op, forced
+post-DDL rollback, opening/movement round-trip, strict codec rejection,
+duplicate/sequence/match/tick rejection, and batch rollback of the tick
+metadata, history and journal rows together.
