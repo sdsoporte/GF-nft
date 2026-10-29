@@ -2,9 +2,11 @@
 
 Migration `007_credit_journal` adds the durable storage an auditable credit
 ledger needs. It is a **storage and audit foundation**: it records an immutable
-opening and append-only movements, and it changes no balance. Contract
-settlement, the 2% fee on delivered value and legacy opening creation inside a
-live match are later integration work; nothing here runs automatically.
+opening and append-only movements, and it changes no balance. The engine now
+produces in-memory movement evidence and settles delivered value with a 2% fee
+([rules](supply-contracts.md)). FactoryMatch binds real match identity, persists
+new tick movements atomically and restores the same evidence on restart.
+The repository itself never changes spendable balances.
 
 ## What the tables mean
 
@@ -47,26 +49,62 @@ movement.
 - Existing companies, contracts and match rows keep their values; no movement,
   opening or balance row is written by the upgrade. There is no back-pay, no
   opening guess and no money change on a legacy database.
-- A legacy match records a `CUTOVER` opening with the balances observed at that
-  tick. Prior history is preserved and audited from that cutover only.
+- First adoption without a journal records a `CUTOVER` at the observed engine
+  tick with current available and ACTIVE escrow/collateral balances. Core rows
+  and closed contracts are unchanged; prior history and prior sinks are unverified,
+  never fabricated or paid again.
+- New matches commit their initial snapshot and COMPLETE opening at tick 0 in
+  one transaction. Existing openings/movements are restored, never replaced.
+- The older metadata-only/no-snapshot degraded recovery stays unchanged: old
+  queued commands are not replayed. Its observed engine cut is CUTOVER, not a
+  claim of reconstructing the unknown earlier world or its balances.
 - Reopening an already-upgraded database applies nothing again. A failed
   application rolls back the new tables and the version record together.
 - Do not run an older build against a version-7 database; the runner refuses a
   database newer than the build.
 
+## Repository API
+
+The repository now provides `createOpening`, `getOpening`, `append`, `list`
+and `count` through `createRepositories(db).creditJournal`. Openings are
+immutable; movement batches are atomic, ordered by contiguous per-match sequence,
+and reject a reused event key. `list` strictly decodes records in journal order.
+
+`CreditJournalError` carries `code` and a `CODE: detail` message: unknown or
+mismatched match, missing/repeated opening, future/before-opening tick, sequence
+out of order, or duplicated event key. Malformed records use
+`CreditLedgerValidationError`. These repository APIs never mutate spendable
+credits; the authoritative engine is the producer.
+
+## Atomic tick composition
+
+`MatchStore.commitExecutions({ metadata, results, completedCommandIds, opening?, movements? })`
+saves optional opening/movements in the same transaction as tick metadata,
+execution history and queue removal. Both journal arguments must belong to
+`metadata.matchId`; a foreign one is rejected with the existing
+`MatchStore received a ... for match ... inside the unit of work of ...` error.
+Movements require this batch's opening or an earlier committed opening. Even an
+explicit empty movement array requires an opening; omit both arguments to keep
+the old behavior exactly. No implicit opening or backfill is created.
+
+The match owns the in-memory checkpoint and actual credits. It appends only
+movements after its last committed journal sequence, inside the same transaction
+as its engine snapshot. That cursor advances only after SQL succeeds. The seam
+test observes real producer arguments without replacing them, forces history to
+fail after both journal records, and verifies full rollback and identical retry.
+
 ## Verify on disposable state
 
 ```sh
-bun test backend/tests/persistence/credit-journal.test.ts \\
-  backend/tests/persistence/draft-status-migration.test.ts
+bun test backend/tests/persistence/credit-journal.test.ts \
+  backend/tests/persistence/draft-status-migration.test.ts \
+  backend/tests/persistence/repos-atomicity.test.ts \
+  backend/tests/persistence/credit-journal-tick-seam.test.ts \
+  backend/tests/persistence/credit-ledger-runtime.test.ts
 ```
 
-This schema cut verifies a populated version-6 upgrade with unchanged legacy
-rows and empty journal tables, repeat no-op, and complete post-DDL rollback.
-The opening repository API is now available through `createRepositories(db).creditJournal`:
-`createOpening`, `getOpening` (null before creation), and `count` (zero before any
-movement). An opening cannot be replaced or written in the future of its match.
-`CreditJournalError` carries `code` and a `CODE: detail` message (`OPENING_EXISTS`,
-`FUTURE_TICK`, `MATCH_UNKNOWN`); malformed records use `CreditLedgerValidationError`.
-Neither API mutates spendable credits. Movement append and the optional atomic
-batch follow in separate cuts; no game flow creates a live opening yet.
+The tests use fresh or disposable databases and public APIs only: fresh version
+7, a populated version-6 upgrade with no journal backfill, repeat no-op, forced
+post-DDL rollback, opening/movement round-trip, strict codec rejection,
+duplicate/sequence/match/tick rejection, and batch rollback of the tick
+metadata, history and journal rows together.

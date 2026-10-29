@@ -22,7 +22,7 @@ import type {
   SupplyContract,
 } from '../../src/domain/types.ts';
 import type { CommodityLot, TradeEscrowRecord } from '../../src/domain/web3DomainModel.ts';
-import type { CreditLedgerOpening } from '../../src/domain/creditLedger.ts';
+import type { CreditLedgerMovement, CreditLedgerOpening } from '../../src/domain/creditLedger.ts';
 import type { McpAuditLogEntry, McpGrant } from '../../src/mcp/types.ts';
 import { hashMcpToken, type McpGrantPolicy, type StoredMcpGrant } from '../../src/mcp/credentials.ts';
 import { closeDatabase, openDatabase } from '../../src/persistence/database.ts';
@@ -322,6 +322,26 @@ export function sampleCreditOpening(
     ],
     ...overrides,
   };
+}
+
+/** Buyer funds its own escrow for the sample contract (S4 escrow deposit). */
+export const SAMPLE_ESCROW_DEPOSIT: CreditLedgerMovement = {
+  matchId: JOURNAL_MATCH_ID,
+  sequence: 1,
+  eventKey: 'evt_contract_1_escrow_deposit',
+  tick: 5,
+  contractId: 'contract_1',
+  kind: 'BUYER_ESCROW_DEPOSIT',
+  amountCredits: 1200,
+  source: { kind: 'AVAILABLE', companyId: COMPANY_FACTORY },
+  destination: { kind: 'BUYER_ESCROW', companyId: COMPANY_FACTORY },
+};
+
+/** One journal movement; sequence 1 / BUYER_ESCROW_DEPOSIT unless overridden. */
+export function sampleCreditMovement(
+  overrides: Partial<CreditLedgerMovement> = {},
+): CreditLedgerMovement {
+  return { ...SAMPLE_ESCROW_DEPOSIT, ...overrides };
 }
 
 export function sampleGrant(overrides: Partial<McpGrant> = {}): McpGrant {

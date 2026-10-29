@@ -185,10 +185,117 @@ export class CreditJournalRepository {
     return { ...normalized, openedAtUtc: row.opened_at_utc };
   }
 
+  /**
+   * Append movements to one match's journal as a single unit of work.
+   *
+   * Each movement is validated, then checked against the persisted identity of
+   * the journal: same match, at or after the opening tick, not after the match's
+   * current tick, the next contiguous sequence, and a not-yet-used event key.
+   * Any rejection rolls back the movements already inserted by this call.
+   */
+  append(
+    matchId: string,
+    movements: readonly CreditJournalMovementWrite[],
+  ): CreditJournalMovementRecord[] {
+    // Match identity first: an unknown match is rejected as such instead of
+    // masquerading as a missing opening.
+    const currentTick = this.matchCurrentTick(matchId);
+    const opening = this.getOpening(matchId);
+    if (!opening) {
+      throw new CreditJournalError(
+        'OPENING_MISSING',
+        `match "${matchId}" has no journal opening; movements cannot be appended before one exists`,
+      );
+    }
+    const stored: CreditJournalMovementRecord[] = [];
+
+    runAtomic(this.database, () => {
+      let expectedSequence =
+        this.database.query<{ max_sequence: number }>(MAX_SEQUENCE_SQL).get(matchId)?.max_sequence ?? 0;
+      for (const input of movements) {
+        const movement: CreditLedgerMovement = validateCreditMovement(input);
+        if (movement.matchId !== matchId) {
+          throw new CreditJournalError(
+            'MATCH_MISMATCH',
+            `received movement ${movement.sequence} for match "${movement.matchId}" inside the ` +
+              `journal of "${matchId}"`,
+          );
+        }
+        if (movement.tick > currentTick) {
+          throw new CreditJournalError(
+            'FUTURE_TICK',
+            `movement ${movement.sequence} is dated tick ${movement.tick} but match "${matchId}" ` +
+              `is at tick ${currentTick}`,
+          );
+        }
+        if (movement.tick < opening.observedAtTick) {
+          throw new CreditJournalError(
+            'TICK_BEFORE_OPENING',
+            `movement ${movement.sequence} is dated tick ${movement.tick}, before the journal ` +
+              `opening of "${matchId}" at tick ${opening.observedAtTick}`,
+          );
+        }
+        expectedSequence += 1;
+        if (movement.sequence !== expectedSequence) {
+          throw new CreditJournalError(
+            'SEQUENCE_OUT_OF_ORDER',
+            `expected the next journal sequence of "${matchId}" to be ${expectedSequence}, ` +
+              `received ${movement.sequence}`,
+          );
+        }
+        if (this.hasEventKey(matchId, movement.eventKey)) {
+          throw new CreditJournalError(
+            'DUPLICATE_EVENT_KEY',
+            `event key "${movement.eventKey}" is already recorded in the journal of "${matchId}"`,
+          );
+        }
+
+        const recordedAtUtc = input.recordedAtUtc ?? nowUtc();
+        this.database
+          .query(INSERT_MOVEMENT_SQL)
+          .run(
+            matchId,
+            movement.sequence,
+            movement.eventKey,
+            movement.tick,
+            movement.contractId ?? null,
+            movement.kind,
+            movement.amountCredits,
+            encodeCreditAccountRef(movement.source),
+            encodeCreditAccountRef(movement.destination),
+            recordedAtUtc,
+          );
+        stored.push({ ...movement, recordedAtUtc });
+      }
+    });
+
+    return stored;
+  }
+
+  /** Movements in journal order (`sequence_number ASC`), the audit reading. */
+  list(matchId: string): CreditJournalMovementRecord[] {
+    return this.database
+      .query<MovementRow>(SELECT_MOVEMENTS_SQL)
+      .all(matchId)
+      .map((row) => {
+        const movement = validateCreditMovement({
+          matchId: row.match_id,
+          sequence: row.sequence_number,
+          eventKey: row.event_key,
+          tick: row.tick,
+          ...(row.contract_id === null ? {} : { contractId: row.contract_id }),
+          kind: row.kind,
+          amountCredits: row.amount_credits,
+          source: decodeCreditAccountRef(row.source_account_json),
+          destination: decodeCreditAccountRef(row.destination_account_json),
+        });
+        return { ...movement, recordedAtUtc: row.recorded_at_utc };
+      });
+  }
+
   count(matchId: string): number {
     return this.database.query<{ total: number }>(COUNT_MOVEMENTS_SQL).get(matchId)?.total ?? 0;
   }
-
 
   private selectOpeningRow(matchId: string): OpeningRow | null {
     return this.database.query<OpeningRow>(SELECT_OPENING_SQL).get(matchId) ?? null;
@@ -206,6 +313,9 @@ export class CreditJournalRepository {
     return row.current_tick;
   }
 
+  private hasEventKey(matchId: string, eventKey: string): boolean {
+    return this.database.query<{ found: number }>(EVENT_KEY_SQL).get(matchId, eventKey) !== null;
+  }
 }
 
 /** True when the rejection came from the journal layer (not domain validation). */
