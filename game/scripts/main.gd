@@ -42,6 +42,12 @@ var _action_hint: Label
 var _command_label: Label
 var _error_label: Label
 var _poll_timer: Timer
+var _offers_list: ItemList
+var _contracts_list: ItemList
+var _market_tick_label: Label
+var _contracts_tick_label: Label
+var _refresh_market_button: Button
+var _auto_fetch_contracts: bool = false
 
 var _client: FactoryApiClient
 var _snapshot: FactorySnapshot
@@ -92,6 +98,11 @@ func setup() -> void:
 	_command_label = %CommandLabel
 	_error_label = %ErrorLabel
 	_poll_timer = %PollTimer
+	_offers_list = %OffersList
+	_contracts_list = %ContractsList
+	_market_tick_label = %MarketTickLabel
+	_contracts_tick_label = %ContractsTickLabel
+	_refresh_market_button = %RefreshMarketButton
 
 	_help_label.text = HELP_TEXT
 	_token_edit.secret = true
@@ -110,10 +121,13 @@ func setup() -> void:
 	_client.production_queued.connect(_on_production_queued)
 	_client.line_control_queued.connect(_on_line_control_queued)
 	_client.command_status_changed.connect(_on_command_status_changed)
+	_client.market_offers_received.connect(_on_market_offers_received)
+	_client.contracts_received.connect(_on_contracts_received)
 	_client.request_failed.connect(_on_request_failed)
 
 	_connect_button.pressed.connect(_on_connect_pressed)
 	_disconnect_button.pressed.connect(_on_disconnect_pressed)
+	_refresh_market_button.pressed.connect(_on_refresh_market_pressed)
 	_start_button.pressed.connect(_on_start_pressed)
 	_pause_button.pressed.connect(_on_pause_pressed)
 	_resume_button.pressed.connect(_on_resume_pressed)
@@ -216,6 +230,20 @@ func apply_snapshot(snapshot: FactorySnapshot) -> void:
 	_refresh_action_state()
 
 
+func apply_market_offers(data: Dictionary) -> void:
+	if _market_tick_label != null:
+		_market_tick_label.text = FactoryViewModel.market_tick_text(data)
+	if _offers_list != null:
+		_fill_list(_offers_list, FactoryViewModel.market_offer_rows(data))
+
+
+func apply_contracts(data: Dictionary) -> void:
+	if _contracts_tick_label != null:
+		_contracts_tick_label.text = FactoryViewModel.contracts_tick_text(data)
+	if _contracts_list != null:
+		_fill_list(_contracts_list, FactoryViewModel.contract_rows(data))
+
+
 func ui_status_text() -> String:
 	return _status_label.text
 
@@ -240,6 +268,30 @@ func ui_line_rows() -> PackedStringArray:
 	for index in _lines_list.item_count:
 		rows.append(_lines_list.get_item_text(index))
 	return rows
+
+
+func ui_market_offer_rows() -> PackedStringArray:
+	var rows := PackedStringArray()
+	if _offers_list != null:
+		for index in _offers_list.item_count:
+			rows.append(_offers_list.get_item_text(index))
+	return rows
+
+
+func ui_contract_rows() -> PackedStringArray:
+	var rows := PackedStringArray()
+	if _contracts_list != null:
+		for index in _contracts_list.item_count:
+			rows.append(_contracts_list.get_item_text(index))
+	return rows
+
+
+func ui_market_tick_text() -> String:
+	return _market_tick_label.text if _market_tick_label != null else ""
+
+
+func ui_contracts_tick_text() -> String:
+	return _contracts_tick_label.text if _contracts_tick_label != null else ""
 
 
 ## Runs the same handler the Start button uses, after selecting the line in the
@@ -343,6 +395,7 @@ func _on_command_status_changed(command: Dictionary) -> void:
 
 
 func _on_request_failed(message: String, fatal: bool) -> void:
+	_auto_fetch_contracts = false
 	if not fatal and not _pending_command_id.is_empty():
 		# A lost status response does not prove that the economic command failed.
 		var unknown_command := _pending_command_id
@@ -354,6 +407,41 @@ func _on_request_failed(message: String, fatal: bool) -> void:
 		_connect_button.disabled = false
 		_disconnect_button.disabled = true
 		_token_edit.text = ""
+	_refresh_action_state()
+
+
+func refresh_market() -> bool:
+	if _client == null or _client.get_connection_state() != FactoryApiClient.STATE_CONNECTED:
+		_show_error("Connect to the server before refreshing market.")
+		return false
+	if _client.is_busy():
+		return false
+	_auto_fetch_contracts = true
+	var started := _client.poll_market_offers()
+	if not started:
+		_auto_fetch_contracts = false
+	_refresh_action_state()
+	return started
+
+
+func _on_refresh_market_pressed() -> void:
+	refresh_market()
+
+
+func _on_market_offers_received(data: Dictionary) -> void:
+	apply_market_offers(data)
+	if _auto_fetch_contracts:
+		var started := _client.poll_contracts()
+		if not started:
+			_auto_fetch_contracts = false
+			_refresh_action_state()
+	else:
+		_refresh_action_state()
+
+
+func _on_contracts_received(data: Dictionary) -> void:
+	apply_contracts(data)
+	_auto_fetch_contracts = false
 	_refresh_action_state()
 
 
@@ -523,6 +611,8 @@ func _refresh_action_state() -> void:
 		_priority_2_button.disabled = not can_control
 	if _priority_3_button != null:
 		_priority_3_button.disabled = not can_control
+	if _refresh_market_button != null:
+		_refresh_market_button.disabled = not connected or busy
 
 
 func _fill_list(list: ItemList, rows: PackedStringArray) -> void:
@@ -560,6 +650,17 @@ func _clear_snapshot_ui() -> void:
 	_inventory_list.clear()
 	_lines_list.clear()
 	_recipes_list.clear()
+	if _offers_list != null:
+		_offers_list.clear()
+	if _contracts_list != null:
+		_contracts_list.clear()
+	if _market_tick_label != null:
+		_market_tick_label.text = "Market: not connected"
+	if _contracts_tick_label != null:
+		_contracts_tick_label.text = "Contracts: not connected"
+	if _refresh_market_button != null:
+		_refresh_market_button.disabled = true
+	_auto_fetch_contracts = false
 	_command_label.text = ""
 	_action_hint.text = FactoryViewModel.NO_SNAPSHOT_REASON
 

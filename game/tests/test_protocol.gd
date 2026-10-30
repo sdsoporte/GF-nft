@@ -16,6 +16,8 @@ func _initialize() -> void:
 	_test_error_payload(t)
 	_test_requests(t)
 	_test_line_control_requests(t)
+	_test_market_offers_parsing(t)
+	_test_contracts_parsing(t)
 	quit(t.finish("test_protocol"))
 
 
@@ -240,3 +242,68 @@ func _test_line_control_requests(t: TestSupport) -> void:
 	t.equal(String(ack["ack"]["commandId"]), "cmd_ctrl_01", "ack command id")
 	t.equal(String(ack["ack"]["status"]), "queued", "ack status")
 	t.check(not FactoryProtocol.parse_line_control_ack('{"commandId":"cmd_1","status":"executed"}')["ok"], "executed ack is rejected")
+
+
+func _test_market_offers_parsing(t: TestSupport) -> void:
+	var parsed: Dictionary = FactoryProtocol.parse_market_offers(t.fixture("market_offers_ok.json"))
+	t.check(parsed["ok"], "valid market offers fixture is accepted")
+	var data: Dictionary = parsed.get("value", {})
+	t.equal(int(data.get("tick", -1)), 42, "market offers tick is carried")
+	var offers: Array = data.get("offers", [])
+	t.equal(offers.size(), 2, "two offers parsed")
+	var offer0: Dictionary = offers[0]
+	t.equal(String(offer0.get("contractId")), "cnt_fixture_01", "first offer contract id")
+	t.equal(String(offer0.get("sellerCompanyId")), "comp_metal_02", "first offer seller")
+	t.equal(offer0.get("buyerCompanyId"), null, "first offer open buyer is null")
+	t.equal(String(offer0.get("itemId")), "IRON_INGOT", "first offer item")
+	t.equal(int(offer0.get("quantity")), 5, "first offer quantity")
+	t.equal(int(offer0.get("unitPriceCredits")), 22, "first offer unit price")
+	t.equal(int(offer0.get("totalValueCredits")), 110, "first offer total value")
+	t.equal(int(offer0.get("deadlineTick")), 312, "first offer deadline")
+
+	var offer1: Dictionary = offers[1]
+	t.equal(String(offer1.get("buyerCompanyId")), "comp_metal_01", "second offer targeted buyer")
+
+	# Empty offers
+	var empty: Dictionary = FactoryProtocol.parse_market_offers(t.fixture("market_offers_empty.json"))
+	t.check(empty["ok"], "empty market offers accepted")
+	t.equal((empty["value"]["offers"] as Array).size(), 0, "empty offers list")
+
+	# Rejections
+	t.check(not FactoryProtocol.parse_market_offers("not json")["ok"], "non-json offers rejected")
+	t.check(not FactoryProtocol.parse_market_offers('{"offers":[]}')["ok"], "offers missing tick rejected")
+	t.check(not FactoryProtocol.parse_market_offers('{"tick": -1, "offers":[]}')["ok"], "negative tick rejected")
+	t.check(not FactoryProtocol.parse_market_offers('{"tick": 0}')["ok"], "missing offers array rejected")
+
+
+func _test_contracts_parsing(t: TestSupport) -> void:
+	var parsed: Dictionary = FactoryProtocol.parse_contracts(t.fixture("contracts_ok.json"))
+	t.check(parsed["ok"], "valid contracts fixture is accepted")
+	var data: Dictionary = parsed.get("value", {})
+	t.equal(int(data.get("tick", -1)), 42, "contracts tick is carried")
+	t.equal(String(data.get("companyId")), "comp_metal_01", "contracts companyId is carried")
+	var contracts: Array = data.get("contracts", [])
+	t.equal(contracts.size(), 2, "two contracts parsed")
+	var c0: Dictionary = contracts[0]
+	t.equal(String(c0.get("contractId")), "cnt_fixture_03", "contract id")
+	t.equal(String(c0.get("status")), "ACTIVE", "contract status")
+	t.equal(String(c0.get("itemId")), "MEGAMACHINE_PART", "contract item")
+	t.equal(int(c0.get("deliveredQuantity")), 1, "contract delivered qty")
+	t.equal(int(c0.get("totalQuantity")), 2, "contract total qty")
+	t.equal(int(c0.get("deadlineTick")), 206, "contract deadline")
+	t.equal(c0.get("settledAtTick"), null, "unsettled settledAtTick is null")
+
+	var c1: Dictionary = contracts[1]
+	t.equal(String(c1.get("status")), "FULFILLED", "second contract status fulfilled")
+	t.equal(int(c1.get("settledAtTick")), 35, "second contract settled tick")
+
+	# Empty contracts
+	var empty: Dictionary = FactoryProtocol.parse_contracts(t.fixture("contracts_empty.json"))
+	t.check(empty["ok"], "empty contracts accepted")
+	t.equal((empty["value"]["contracts"] as Array).size(), 0, "empty contracts list")
+
+	# Rejections
+	t.check(not FactoryProtocol.parse_contracts("not json")["ok"], "non-json contracts rejected")
+	t.check(not FactoryProtocol.parse_contracts('{"tick": 0, "contracts":[]}')["ok"], "missing companyId rejected")
+	t.check(not FactoryProtocol.parse_contracts('{"tick": 0, "companyId": "c1"}')["ok"], "missing contracts array rejected")
+	t.check(not FactoryProtocol.parse_contracts('{"tick": 0, "companyId": "c1", "contracts":[{"status":"INVALID"}]}')["ok"], "invalid status rejected")

@@ -20,6 +20,7 @@ func _initialize() -> void:
 	_test_affordability(t)
 	_test_paused_and_no_energy_progress(t)
 	_test_energy_guide(t, snapshot)
+	_test_market_and_contracts_view(t)
 	quit(t.finish("test_view_model"))
 
 
@@ -143,3 +144,44 @@ func _test_energy_guide(t: TestSupport, snapshot: FactorySnapshot) -> void:
 	t.contains(idle_guide, "2", "idle line uses recipe rate for per-tick demand")
 	t.contains(idle_guide, "20", "idle line shows total recipe cost")
 	t.contains(idle_guide.to_lower(), "uninterrupted", "idle line disclaims uninterrupted progress")
+
+
+func _test_market_and_contracts_view(t: TestSupport) -> void:
+	var offers_parsed: Dictionary = FactoryProtocol.parse_market_offers(t.fixture("market_offers_ok.json"))
+	var offers_data: Dictionary = offers_parsed["value"]
+	var offer_rows: PackedStringArray = FactoryViewModel.market_offer_rows(offers_data)
+	t.equal(offer_rows.size(), 2, "two offer rows rendered")
+	t.contains(offer_rows[0], "cnt_fixture_01", "row has contractId")
+	t.contains(offer_rows[0], "comp_metal_02", "row has seller")
+	t.contains(offer_rows[0], "IRON_INGOT", "row has item")
+	t.contains(offer_rows[0], "5", "row has quantity")
+	t.contains(offer_rows[0], "22", "row has unit price")
+	t.contains(offer_rows[0], "312", "row has deadline")
+
+	# Empty offers
+	var empty_offers: Dictionary = FactoryProtocol.parse_market_offers(t.fixture("market_offers_empty.json"))
+	var empty_offer_rows: PackedStringArray = FactoryViewModel.market_offer_rows(empty_offers["value"])
+	t.equal(empty_offer_rows.size(), 1, "empty offers has 1 row")
+	t.contains(empty_offer_rows[0], "No active market offers", "explicit empty offers message")
+
+	# Contracts
+	var contracts_parsed: Dictionary = FactoryProtocol.parse_contracts(t.fixture("contracts_ok.json"))
+	var contracts_data: Dictionary = contracts_parsed["value"]
+	var contract_rows: PackedStringArray = FactoryViewModel.contract_rows(contracts_data)
+	t.equal(contract_rows.size(), 2, "two contract rows rendered")
+	t.contains(contract_rows[0], "cnt_fixture_03", "row has contractId")
+	t.contains(contract_rows[0], "ACTIVE", "row has status")
+	t.contains(contract_rows[0], "1/2", "row has delivered/total")
+	t.contains(contract_rows[0], "206", "row has deadline")
+
+	# Empty contracts
+	var empty_contracts: Dictionary = FactoryProtocol.parse_contracts(t.fixture("contracts_empty.json"))
+	var empty_contract_rows: PackedStringArray = FactoryViewModel.contract_rows(empty_contracts["value"])
+	t.equal(empty_contract_rows.size(), 1, "empty contracts has 1 row")
+	t.contains(empty_contract_rows[0], "No contracts for this company", "explicit empty contracts message")
+
+	# Tick headers
+	t.equal(FactoryViewModel.market_tick_text(offers_data), "Market (tick 42)", "market tick formatted")
+	t.equal(FactoryViewModel.contracts_tick_text(contracts_data), "Contracts (tick 42)", "contracts tick formatted")
+	t.equal(FactoryViewModel.market_tick_text({}), "Market: not connected", "market tick unformatted when empty")
+	t.equal(FactoryViewModel.contracts_tick_text({}), "Contracts: not connected", "contracts tick unformatted when empty")

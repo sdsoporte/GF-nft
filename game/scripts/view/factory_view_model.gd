@@ -18,6 +18,8 @@ const ITEM_ORDER := [
 ]
 
 const NO_SNAPSHOT_REASON := "No server snapshot yet; connect to the backend first."
+const EMPTY_OFFERS_TEXT := "(No active market offers)"
+const EMPTY_CONTRACTS_TEXT := "(No contracts for this company)"
 
 
 static func match_text(snapshot: FactorySnapshot) -> String:
@@ -236,3 +238,61 @@ static func format_integer(value: int) -> String:
 	if value < 0:
 		return "-" + grouped
 	return grouped
+
+
+static func market_offer_rows(offers_data: Dictionary) -> PackedStringArray:
+	var rows := PackedStringArray()
+	var offers: Array = offers_data.get("offers", [])
+	if offers.is_empty():
+		rows.append(EMPTY_OFFERS_TEXT)
+		return rows
+	for offer_variant in offers:
+		if typeof(offer_variant) != TYPE_DICTIONARY:
+			continue
+		var offer: Dictionary = offer_variant
+		var contract_id := String(offer.get("contractId", ""))
+		var seller_id := String(offer.get("sellerCompanyId", ""))
+		var item_id := String(offer.get("itemId", ""))
+		var quantity := int(offer.get("quantity", 0))
+		var unit_price := int(offer.get("unitPriceCredits", 0))
+		var deadline := int(offer.get("deadlineTick", 0))
+		rows.append(
+			"%s: %s offers %s %s @ %s credits (deadline tick %d)"
+			% [contract_id, seller_id, format_integer(quantity), item_id, format_integer(unit_price), deadline]
+		)
+	return rows
+
+
+static func contract_rows(contracts_data: Dictionary) -> PackedStringArray:
+	var rows := PackedStringArray()
+	var contracts: Array = contracts_data.get("contracts", [])
+	if contracts.is_empty():
+		rows.append(EMPTY_CONTRACTS_TEXT)
+		return rows
+	for contract_variant in contracts:
+		if typeof(contract_variant) != TYPE_DICTIONARY:
+			continue
+		var contract: Dictionary = contract_variant
+		var contract_id := String(contract.get("contractId", ""))
+		var status := String(contract.get("status", ""))
+		var item_id := String(contract.get("itemId", ""))
+		var delivered := int(contract.get("deliveredQuantity", 0))
+		var total := int(contract.get("totalQuantity", 0))
+		var deadline := int(contract.get("deadlineTick", 0))
+		rows.append(
+			"%s: %s %s delivered %s/%s (deadline tick %d)"
+			% [contract_id, item_id, status, format_integer(delivered), format_integer(total), deadline]
+		)
+	return rows
+
+
+static func market_tick_text(offers_data: Dictionary) -> String:
+	if not offers_data.has("tick"):
+		return "Market: not connected"
+	return "Market (tick %d)" % int(offers_data["tick"])
+
+
+static func contracts_tick_text(contracts_data: Dictionary) -> String:
+	if not contracts_data.has("tick"):
+		return "Contracts: not connected"
+	return "Contracts (tick %d)" % int(contracts_data["tick"])
