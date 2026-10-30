@@ -60,8 +60,19 @@ Owner endpoints (only when ${OWNER_ID_ENV_VAR} is configured):
   POST   /v1/owner/grants            Session bearer -> one-time token delivery.
   GET    /v1/owner/grants/<id>       Session bearer -> safe metadata only.
   DELETE /v1/owner/grants/<id>       Session bearer -> immediate revocation.
+  GET    /v1/owner/selling           Session bearer -> own contracts with the
+                                   engine escrow/collateral/fee/default figures
+                                   and recent command outcomes by caller key.
+  POST   /v1/owner/contracts         Session bearer -> queue a draft offer for the
+                                   server-selected company.
   POST   /v1/owner/contracts/<id>/publish
                                    Session bearer -> queue publication of an owned DRAFT.
+  POST   /v1/owner/contracts/<id>/cancel
+                                   Session bearer -> queue cancellation of an owned
+                                   DRAFT or unaccepted PENDING offer.
+  POST   /v1/owner/contracts/<id>/dispatch
+                                   Session bearer -> queue a seller dispatch for an
+                                   owned ACTIVE contract.
 
 External MCP transport/catalog remains separate (#9); embedding callers use the
 server-owned gateway, whose commands are persisted before acknowledgement.

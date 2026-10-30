@@ -101,22 +101,68 @@ it. Consequences a client can rely on:
   different terms, is refused rather than replayed or duplicated.
 - Refusals change no queue, sequence, acknowledgement or economic state.
 
-## Known gap: reading terms back through the session
+## Reading the seller loop back
 
-The owner session can write the seller loop but cannot read it back. Contract
-terms, status and delivery progress are only exposed by the root-bearer routes
-`GET /v1/contracts`, `GET /v1/market/offers` and `GET /v1/state`, and the engine
-assigns the `contractId` while executing the queued draft. A client that also
-holds the root bearer (the desktop client does, for `/v1/state` and the read
-models) can therefore read the current tick and follow the resulting DRAFT;
-a session-only client can do neither, because it cannot learn the tick that makes
-an absolute `deadline_tick` valid nor the contract id its own call created. The
-202 bodies echo the exact admitted terms (plus `scheduledTick`) so a human
-confirmation step can present what was submitted, but the collateral, escrow and
-settlement figures that publication and acceptance will apply stay engine-owned
-and unreadable from the session. Closing that gap needs an owner-session read
-route or a session-readable admission result; both are explicit, separate
-changes and neither is part of this unit.
+Writing the seller loop is not enough for an honest confirmation, so one
+additive read route serves it to the same owner session:
+
+```bash
+curl -fsS http://127.0.0.1:8787/v1/owner/selling \
+  -H "Authorization: Bearer $session"
+```
+
+```json
+{
+  "tick": 42,
+  "companyId": "comp_metal_01",
+  "availableCredits": 10000,
+  "marketFeeBps": 200,
+  "contracts": [
+    {
+      "contractId": "cnt_41_1", "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": null, "itemId": "RAW_ORE",
+      "totalQuantity": 10, "deliveredQuantity": 0,
+      "unitPriceCredits": 5, "totalValueCredits": 50,
+      "collateralSellerCredits": 10,
+      "createdAtTick": 41, "deadlineTick": 91, "status": "DRAFT",
+      "settledAtTick": null,
+      "consequences": {
+        "buyerEscrowCredits": 50, "sellerCollateralCredits": 10,
+        "marketFeeCredits": 1, "sellerNetOnFullDeliveryCredits": 49,
+        "penaltyPerMissingUnitCredits": 10,
+        "maximumDefaultIndemnityCredits": 10
+      }
+    }
+  ],
+  "recentCommands": [
+    {"idempotencyKey": "sell_draft-1-1", "status": "executed",
+     "executedAtTick": 41, "errorCode": null}
+  ]
+}
+```
+
+| Field group | Meaning |
+| --- | --- |
+| `tick` | The server tick an absolute `deadline_tick` must be computed from. |
+| `contracts` | The acting company's own contracts only, in engine order. Foreign drafts and foreign contracts never appear. |
+| `consequences` | Engine-owned figures for that contract, derived from the stored record and the engine's own constants: the escrow acceptance locks, the seller collateral, the market fee on full delivery, the net payout, the per-unit default penalty and the indemnity cap. |
+| `recentCommands` | The acting company's recent command outcomes, newest last, correlated by the caller's own `idempotency_key`. `202` means admitted; this list is where a queued command becomes `executed` or `rejected` with its `errorCode`. |
+
+Use it in two places:
+
+1. **Before publishing or dispatching** — present `consequences` to the human.
+   The client never computes economic rules locally.
+2. **After a `202`** — poll until the caller key appears with a final status, or
+   until the contract it changed shows the new `status`/`deliveredQuantity`.
+
+Nothing here is public market data: the route needs the owner-session bearer,
+it is read-only (`GET` only, other methods are `405`), and it changes no queue,
+sequence, acknowledgement or economic state. The public offer book
+(`GET /v1/market/offers`) keeps its existing shape and visibility.
+
+`recentCommands` reports keys from every route of the acting company, including
+production keys shaped `http:<matchId>:<requestId>`; a client must therefore
+correlate by exact key equality rather than by key syntax.
 
 ## Checklist
 
@@ -125,6 +171,8 @@ changes and neither is part of this unit.
 - [ ] Cancellation is refused for anything not `DRAFT`/`PENDING`.
 - [ ] Dispatch is refused for anything but the seller's own `ACTIVE` contract.
 - [ ] One `idempotency_key` maps to exactly one financial command.
+- [ ] Escrow, collateral, fee and default indemnity are read from
+      `GET /v1/owner/selling`, never recomputed by a client.
 
 See [owner API](mcp-owner-api.md) for the session and grant routes,
 [supply contracts](supply-contracts.md) for the engine rules these routes reach,
