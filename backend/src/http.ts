@@ -30,6 +30,7 @@ import {
 import type { MatchStore } from './persistence/matchStore.ts';
 import type { McpGateway } from './mcp/McpGateway.ts';
 import { createMcpRuntime, type McpRuntime } from './mcpRuntime.ts';
+import { handleMcpPost } from './mcp/transport.ts';
 import { GrantIssueError, type GrantIssueInput } from './grantService.ts';
 import { readFactoryConfig } from './config.ts';
 import { IDEMPOTENCY_KEY_REGEX } from './mcp/schemas.ts';
@@ -80,7 +81,7 @@ interface HandlerContext {
   readonly owner: McpRuntime | null;
 }
 
-type RouteName = 'health' | 'state' | 'production' | 'command';
+type RouteName = 'health' | 'state' | 'production' | 'command' | 'mcp';
 
 type ResolvedRoute =
   | { readonly kind: 'route'; readonly name: RouteName; readonly commandId?: string }
@@ -103,6 +104,10 @@ function resolveRoute(method: string, pathname: string): ResolvedRoute {
   }
   if (path === '/v1/production') {
     return method === 'POST' ? { kind: 'route', name: 'production' } : { kind: 'method_not_allowed' };
+  }
+
+  if (path === '/mcp') {
+    return method === 'POST' ? { kind: 'route', name: 'mcp' } : { kind: 'method_not_allowed' };
   }
 
   const commandMatch = /^\/v1\/commands\/([^/]+)$/.exec(path);
@@ -430,6 +435,37 @@ async function handleRequest(
   if (route.name === 'health') {
     await discardBody(req);
     sendJson(res, 200, { status: 'ok', protocolVersion: PROTOCOL_VERSION });
+    return;
+  }
+
+  // Issue #9: the external MCP transport authenticates per call with its own
+  // grant tokens, so it runs before the root-token gate.
+  if (route.name === 'mcp') {
+    if (!context.owner) {
+      await discardBody(req);
+      sendError(res, ERRORS.notFound);
+      return;
+    }
+    const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
+    if (!body.ok) {
+      sendJson(res, body.reason === 'too_large' ? 413 : 400, {
+        jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON-RPC request' },
+      });
+      return;
+    }
+    let parsed: unknown;
+    try { parsed = JSON.parse(body.text); } catch {
+      sendJson(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON-RPC request' } });
+      return;
+    }
+    const owner = context.owner;
+    const response = await handleMcpPost({
+      gateway: owner.gateway,
+      resolveBearer: (token) => owner.grants.resolve(token) !== undefined,
+      bearer: readBearer(req),
+      body: parsed,
+    });
+    sendJson(res, response.status, response.json);
     return;
   }
 
