@@ -14,6 +14,13 @@ import {
   NpcCompanyConfig,
 } from './types.ts';
 
+/** Issue #55: NPC randomness derives from (match seed, tick), so decisions are a
+ * pure function of match state + tick — replay, restart and rollback reproduce
+ * them exactly with no controller state to persist. */
+export function deriveNpcTickSeed(baseSeed: number, tick: number): number {
+  return (baseSeed ^ Math.imul(tick + 1, 0x9e3779b1)) >>> 0;
+}
+
 export const DEFAULT_NPC_CONFIG_CLASS_A: NpcCompanyConfig = Object.freeze({
   companyId: 'comp_metal_02',
   targetBuffer: Object.freeze(computeTargetBufferFromInitialStock(DEFAULT_STARTING_STOCK)),
@@ -55,11 +62,11 @@ export interface NpcControllerOptions {
 }
 
 export class NpcController {
-  private readonly rng: Mulberry32PRNG;
+  private readonly baseSeed: number;
   private readonly policies: Map<string, DeterministicNpcPolicy> = new Map();
 
   constructor(options: NpcControllerOptions = {}) {
-    this.rng = new Mulberry32PRNG(options.seed ?? 42107);
+    this.baseSeed = options.seed ?? 42107;
     const configs = options.configs ?? [DEFAULT_NPC_CONFIG_CLASS_A, DEFAULT_NPC_CONFIG_CLASS_B];
     for (const config of configs) {
       this.policies.set(config.companyId, new DeterministicNpcPolicy(config));
@@ -87,7 +94,7 @@ export class NpcController {
       const company = engine.getCompany(companyId);
       if (!company || !company.isNPC) continue;
 
-      const decisions = policy.evaluateDecisions(company, contracts, currentTick, this.rng);
+      const decisions = policy.evaluateDecisions(company, contracts, currentTick, new Mulberry32PRNG(deriveNpcTickSeed(this.baseSeed, currentTick)));
       for (const cmd of decisions) {
         const enqueued = engine.submitCommand(cmd);
         if (enqueued) {

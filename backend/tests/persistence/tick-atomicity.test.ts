@@ -28,9 +28,10 @@ import test from 'node:test';
 import type { Database } from 'bun:sqlite';
 
 import { Mulberry32PRNG, SimulatorEngine } from '../../src/engine/SimulatorEngine.ts';
-import { FactoryMatch } from '../../src/match.ts';
+import { NpcController } from '../../src/engine/npc/NpcController.ts';
+import { DEFAULT_MATCH_SEED, FactoryMatch } from '../../src/match.ts';
 import type { MatchStore } from '../../src/persistence/matchStore.ts';
-import type { EnqueueCommandInput } from '../../src/domain/types.ts';
+import type { CommandExecutionResult, EnqueueCommandInput } from '../../src/domain/types.ts';
 import { snapshotState } from './repos-fixtures.ts';
 import { MATCH_ID, productionPayload, withMatchStore } from './queue-fixtures.ts';
 import { admitThroughStore } from './recovery-fixtures.ts';
@@ -40,6 +41,26 @@ const SELLER = 'comp_metal_01';
 const BUYER = 'comp_manuf_01';
 const OTHER_BUYER = 'comp_manuf_02';
 const FAULT_MESSAGE = 'gf-induced tick failure';
+
+/** The NPC companies an authoritative match tick drives (issue #55). */
+const NPC_COMPANY_IDS = new Set(new NpcController().getRegisteredCompanyIds());
+
+/**
+ * Issue #55: an NPC command id embeds the policy's own submission counter, so a
+ * manually driven oracle that builds its controller late numbers the very same
+ * commands differently. The parity comparison therefore keeps every other field
+ * and collapses an NPC id to the tick it executed on; the engine snapshot stays
+ * the byte-level oracle for the NPC state those commands produce.
+ */
+function normalizeNpcCommandIds(
+  results: readonly CommandExecutionResult[],
+): CommandExecutionResult[] {
+  return results.map((result) =>
+    result.companyId !== undefined && NPC_COMPANY_IDS.has(result.companyId)
+      ? { ...result, commandId: `<npc@tick:${result.executedAtTick}>` }
+      : result,
+  );
+}
 
 interface Harness {
   readonly store: MatchStore;
@@ -170,10 +191,43 @@ test('a failed tick leaves the engine, the rows and the counters unchanged', () 
     assert.equal(creditsOf(harness, SELLER), 10000, 'seller collateral must not be debited');
     assert.equal(harness.match.engine.getCurrentTick(), 1, 'the failed tick must not advance the clock');
     assert.equal(harness.match.engine.getCommandQueue().getPendingCount(), 1);
-    assert.equal(harness.match.engine.getExecutionHistory().length, 1);
-    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 1);
+    // Issue #55: the published offer and the three NPC opening production
+    // targets of tick 1 stay committed; the refused acceptance adds nothing.
+    assert.equal(harness.match.engine.getExecutionHistory().length, 4);
+    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 4);
     assert.equal(harness.store.repositories.queue.countPending(MATCH_ID), 1);
     assert.equal(harness.store.repositories.matches.load(MATCH_ID)?.currentTick, 1);
+  });
+});
+
+test('the NPC dedupe keys of a failed tick roll back with its rows (issue #55)', () => {
+  withHarness((harness) => {
+    // Tick 1 is the first tick the NPC policies act on: they enqueue three
+    // opening production targets whose permanent keys are written inside the
+    // same unit of work as the tick. The snapshot fault is raised after those
+    // rows exist, so this pins the ordering the durable-key write introduced.
+    const before = stateOf(harness);
+    failSnapshotWrite(harness.database);
+    assert.throws(() => harness.match.advanceTicks(1), new RegExp(FAULT_MESSAGE));
+
+    assert.equal(stateOf(harness), before, 'the failed tick leaves every row where it was');
+    assert.equal(
+      harness.store.repositories.queue.countProcessed(MATCH_ID),
+      0,
+      'no durable NPC key survives a refused tick',
+    );
+    assert.deepEqual(
+      harness.match.engine.getCommandQueue().listProcessedIdempotencyKeys(),
+      [],
+      'no in-memory NPC key survives a refused tick',
+    );
+
+    // The retry commits the same three keys exactly once and they are durable.
+    clearFaults(harness.database);
+    harness.match.advanceTicks(1);
+    assert.equal(harness.store.repositories.queue.countProcessed(MATCH_ID), 3);
+    assert.equal(harness.match.engine.getCommandQueue().listProcessedIdempotencyKeys().length, 3);
+    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 3);
   });
 });
 
@@ -214,12 +268,14 @@ test('retrying a failed tick commits exactly one acceptance and one escrow movem
     assert.equal(creditsOf(harness, SELLER), 9980, 'one collateral debit, not two');
 
     const history = harness.match.engine.getExecutionHistory();
-    assert.equal(history.length, 2, 'the retried tick executes its command once');
+    // Issue #55: tick 1 committed the offer plus three NPC production targets,
+    // and the retried tick 2 adds exactly one human acceptance.
+    assert.equal(history.length, 5, 'the retried tick executes its command once');
     const accepted = history.filter((result) => result.commandId.startsWith('cmd_accept_'));
     assert.equal(accepted.length, 1);
     assert.equal(accepted[0]?.success, true);
     assert.equal(harness.match.engine.getCurrentTick(), 2);
-    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 2);
+    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 5);
     assert.equal(harness.store.repositories.queue.countPending(MATCH_ID), 0);
     assert.equal(harness.store.repositories.matches.load(MATCH_ID)?.currentTick, 2);
 
@@ -227,7 +283,7 @@ test('retrying a failed tick commits exactly one acceptance and one escrow movem
     harness.match.advanceTicks(1);
     assert.equal(creditsOf(harness, BUYER), 9900);
     assert.equal(creditsOf(harness, SELLER), 9980);
-    assert.equal(harness.match.engine.getExecutionHistory().length, 2);
+    assert.equal(harness.match.engine.getExecutionHistory().length, 5);
   });
 });
 
@@ -337,10 +393,14 @@ test('a multi-tick call keeps the earlier committed ticks when a later tick fail
 
     assert.equal(active.match.engine.getCurrentTick(), 1, 'only the failed tick is rolled back');
     assert.equal(harness.store.repositories.matches.load(MATCH_ID)?.currentTick, 1);
-    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 1);
+    // Issue #55: the committed tick 1 ran the human command plus the three NPC
+    // opening production targets, so four rows survive the failed tick 2.
+    assert.equal(harness.store.repositories.commandResults.count(MATCH_ID), 4);
     const history = active.match.engine.getExecutionHistory();
-    assert.equal(history.length, 1);
-    assert.equal(history[0]?.commandId, first.commandId, 'tick 1 stays committed');
+    assert.equal(history.length, 4);
+    const committed = history.filter((result) => result.commandId === first.commandId);
+    assert.equal(committed.length, 1, 'tick 1 stays committed');
+    assert.equal(committed[0]?.executedAtTick, 1);
 
     const pending = active.match.engine.getCommandQueue().listPending();
     assert.deepEqual(
@@ -476,10 +536,17 @@ for (const input of legacyCommands) {
       const command = { ...input, scheduledTick: snapshot.tick + 1 };
       admitThroughStore(harness.match, harness.store, command, input.type);
       assert.equal(expected.submitCommand(command), true);
+      // Issue #55: the authoritative tick drives the NPC policies before the
+      // engine tick, so the oracle has to do the same or it diverges on every
+      // NPC company the tick advances.
+      new NpcController({ seed: DEFAULT_MATCH_SEED }).stepTick(expected);
       const expectedSnapshot = expected.processTick();
       harness.match.advanceTicks(1);
       assert.deepEqual(harness.match.engine.createSnapshot(), expectedSnapshot);
-      assert.deepEqual(harness.match.engine.getExecutionHistory(), expected.getExecutionHistory());
+      assert.deepEqual(
+        normalizeNpcCommandIds(harness.match.engine.getExecutionHistory()),
+        normalizeNpcCommandIds(expected.getExecutionHistory()),
+      );
       assert.equal(expected.getExecutionHistory().at(-1)?.success, true);
       assert.deepEqual(queue.listPending(), expected.getCommandQueue().listPending());
       assert.deepEqual(queue.listProcessedIdempotencyKeys(), expected.getCommandQueue().listProcessedIdempotencyKeys());

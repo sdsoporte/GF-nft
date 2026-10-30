@@ -102,14 +102,18 @@ test('executing a command moves it from the queue row to the results and advance
 
     assert.equal(store.repositories.queue.countPending(MATCH_ID), 0);
     const results = store.repositories.commandResults.list(MATCH_ID);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].historyIndex, 0);
-    assert.equal(results[0].commandId, decision.commandId);
-    assert.equal(results[0].executedAtTick, 1);
-    assert.equal(results[0].success, true);
+    // Issue #55: the tick also drives the NPC policies, which enqueue three
+    // opening production targets for comp_metal_02 that execute before the
+    // human command (they are scheduled on tick 0, the human one on tick 1).
+    assert.equal(results.length, 4);
+    const human = results.filter((result) => result.commandId === decision.commandId);
+    assert.equal(human.length, 1);
+    assert.equal(human[0].historyIndex, 3);
+    assert.equal(human[0].executedAtTick, 1);
+    assert.equal(human[0].success, true);
 
     const metadata = store.repositories.matches.load(MATCH_ID);
-    assert.equal(metadata?.historyCursor, 1);
+    assert.equal(metadata?.historyCursor, 4);
     assert.equal(metadata?.currentTick, 1);
     assert.deepEqual(match.getCommandStatus(decision.commandId), {
       commandId: decision.commandId,
@@ -126,8 +130,13 @@ test('a tick without commands still persists the current tick and the cursor', (
 
     const metadata = store.repositories.matches.load(MATCH_ID);
     assert.equal(metadata?.currentTick, 3);
-    assert.equal(metadata?.historyCursor, 0);
-    assert.equal(store.repositories.commandResults.count(MATCH_ID), 0);
+    // Issue #55: NPC policies execute their three opening production targets on
+    // tick 1. Ticks 2 and 3 have no command at all, and the cursor still tracks
+    // the every-tick persistence instead of moving only when work happens.
+    assert.equal(metadata?.historyCursor, 3);
+    const results = store.repositories.commandResults.list(MATCH_ID);
+    assert.equal(results.length, 3);
+    assert.deepEqual(results.map((result) => result.executedAtTick), [1, 1, 1]);
   });
 });
 
@@ -156,16 +165,27 @@ test('reopening the database restores the ack ledger, command statuses and the c
 
       assert.equal(reopened.engine.getCommandQueue().getPendingCount(), 0, 'a replay must not enqueue a second command');
       assert.equal(second.store.repositories.queue.countPending(MATCH_ID), 0);
-      assert.equal(second.store.repositories.queue.countProcessed(MATCH_ID), 1);
+      // Issue #55: three NPC production targets plus the human command ran on
+      // tick 1, so the results and the cursor carry 4. NPC commands skip the
+      // store-admission path, so their dedupe keys are persisted with the tick
+      // that enqueued them: the durable table holds all 4, which is what lets the
+      // reopened engine re-arm its dedupe guard for NPC commands too.
+      assert.equal(second.store.repositories.queue.countProcessed(MATCH_ID), 4);
+      assert.equal(
+        second.store.repositories.queue.listProcessed(MATCH_ID)
+          .filter((record) => record.idempotencyKey.startsWith('npc_prod_')).length,
+        3,
+        'the three NPC production keys are durable, not only in memory',
+      );
       assert.equal(second.store.repositories.ackLedger.count(MATCH_ID), 1);
-      assert.equal(second.store.repositories.commandResults.count(MATCH_ID), 1);
-      assert.equal(second.store.repositories.matches.load(MATCH_ID)?.historyCursor, 1);
+      assert.equal(second.store.repositories.commandResults.count(MATCH_ID), 4);
+      assert.equal(second.store.repositories.matches.load(MATCH_ID)?.historyCursor, 4);
 
       // The adopted cursor never regresses, even though the rebuilt engine has
       // no execution history yet: nothing had executed before the first close
       reopened.advanceTicks(1);
-      assert.equal(second.store.repositories.matches.load(MATCH_ID)?.historyCursor, 1);
-      assert.equal(second.store.repositories.commandResults.count(MATCH_ID), 1);
+      assert.equal(second.store.repositories.matches.load(MATCH_ID)?.historyCursor, 4);
+      assert.equal(second.store.repositories.commandResults.count(MATCH_ID), 4);
     } finally {
       closeDatabase(second.database);
     }

@@ -93,11 +93,18 @@ test('owner publication validates input and preserves offer terms without lockin
     app.clock.advance();
     const engine = app.handle.match.engine;
     assert.deepEqual(engine.getContract(draft.contractId), { ...draft, status: 'PENDING' });
-    // The tick still regenerates energy normally; publication changes no other company state.
-    const expectedCompanies = Object.fromEntries(Object.entries(before.snapshot.companies).map(([id, company]) => [
-      id, { ...company, energy: Math.min(company.energy + company.energyGenerationPerTick, company.maxEnergyStorage) },
-    ]));
-    assert.deepEqual(engine.createSnapshot().companies, expectedCompanies);
+    // The tick still regenerates energy normally; publication changes no other
+    // human company state. NPC companies are excluded because issue #55 makes
+    // them run their own policies on every match tick.
+    const expectedCompanies = Object.fromEntries(Object.entries(before.snapshot.companies)
+      .filter(([, company]) => !company.isNPC)
+      .map(([id, company]) => [
+        id, { ...company, energy: Math.min(company.energy + company.energyGenerationPerTick, company.maxEnergyStorage) },
+      ]));
+    const actualCompanies = Object.fromEntries(
+      Object.entries(engine.createSnapshot().companies).filter(([, company]) => !company.isNPC),
+    );
+    assert.deepEqual(actualCompanies, expectedCompanies);
     const quotes = expectSuccess(await app.handle.mcp!.invokeTool(grant.token, 'get_market_quotes', {}));
     assert.equal((quotes.data as { quotes: unknown[] }).quotes.length, 1);
     assert.equal(engine.getExecutionHistory().at(-1)!.success, true);

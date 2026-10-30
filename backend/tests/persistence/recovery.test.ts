@@ -48,7 +48,15 @@ function assertMidGameIsMeaningful(match: FactoryMatch): void {
   );
 
   const contracts = Object.values(snapshot.contracts);
-  assert.equal(contracts.length, 2);
+  // Issue #55: the NPC companies publish their own surplus offers during the
+  // run, so the script's two contracts sit next to three NPC offers. The two
+  // assertions below still pin the script's own contracts by status.
+  assert.equal(contracts.length, 5);
+  assert.equal(
+    contracts.filter((contract) => contract.sellerCompanyId !== 'comp_metal_01').length,
+    3,
+    'the three extra contracts are NPC surplus offers',
+  );
   const defaulted = contracts.find((contract) => contract.status === 'DEFAULTED');
   const active = contracts.find((contract) => contract.status === 'ACTIVE');
   assert.ok(defaulted, 'the expiring offer must be DEFAULTED');

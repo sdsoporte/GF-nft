@@ -70,9 +70,14 @@ test('failed acceptance rolls back engine, tick and journal before exactly-once 
     assert.equal(match.engine.getCompany(BUYER)?.credits, 9900);
     assert.equal(match.engine.getCompany(SELLER)?.credits, 9980);
     assert.equal(store.repositories.matches.load(MATCH_ID)?.currentTick, 2);
-    assert.equal(store.repositories.commandResults.count(MATCH_ID), 2);
+    // Issue #55: the same two ticks also execute the NPC policies, which enqueue
+    // three opening production targets for comp_metal_02 on tick 1, so both the
+    // results and the permanent dedupe rows carry 3 NPC commands next to the two
+    // human ones (NPC keys are persisted with the tick that enqueued them). The
+    // NPC commands move no credits, so the journal stays at two movements.
+    assert.equal(store.repositories.commandResults.count(MATCH_ID), 5);
     assert.equal(store.repositories.queue.countPending(MATCH_ID), 0);
-    assert.equal(store.repositories.queue.countProcessed(MATCH_ID), 2);
+    assert.equal(store.repositories.queue.countProcessed(MATCH_ID), 5);
     const journal = store.repositories.creditJournal;
     assert.equal(journal.getOpening(MATCH_ID)?.coverage, 'COMPLETE');
     assert.deepEqual(attempts[0], attempts[1], 'retry uses identical real event keys, sequence and amounts');
