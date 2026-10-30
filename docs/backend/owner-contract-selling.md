@@ -63,7 +63,7 @@ read them from the same command schemas (`backend/src/mcp/schemas.ts`).
 | `quantity` | Integer 1–5000 |
 | `unit_price` | Integer 1–100000 |
 | `deadline_tick` | Absolute match tick; its horizon (deadline minus current tick) is 10–2700 |
-| `target_buyer_id` | A company id; absent or `null` means the offer is open |
+| `target_buyer_id` | A company id; omit it to create an open offer; explicit `null` is rejected |
 | `quantity_to_ship` | Integer 1–1000; the engine clamps it to the quantity still owed |
 
 The body key set is exact. Company id, contract id, command id, scheduled tick
