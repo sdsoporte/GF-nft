@@ -41,6 +41,11 @@ See [owner API](mcp-owner-api.md) for the request and exact responses, and
   may accept it. Acceptance preserves the seller, item, quantity, price,
   collateral, penalty and deadline.
 - A seller cannot accept its own offer, including an open offer.
+- Acceptance must execute strictly before `deadlineTick`, matching publication
+  and the public market book. At or after that tick, an authorized buyer gets
+  `ERR_OFFER_NOT_AVAILABLE` / `Offer has expired` without economic changes.
+  This does not change delivery: an already ACTIVE contract may still be
+  delivered on its deadline tick.
 - Authorization is checked before debiting buyer funds or seller collateral.
   Rejected commands produce an execution-history error without changing offer
   state, credits or inventories.
@@ -55,6 +60,7 @@ See [owner API](mcp-owner-api.md) for the request and exact responses, and
 | `ERR_OFFER_NOT_FOR_BUYER` | `Only the designated buyer can accept this offer` | A company other than the targeted buyer tries to accept. |
 | `ERR_SELF_CONTRACT` | `Seller cannot accept its own offer` | The accepting company is the seller. |
 | `ERR_OFFER_NOT_AVAILABLE` | `Offer does not exist or is not pending` | The offer is missing or not pending, including DRAFTs and competing acceptance/retries. |
+| `ERR_OFFER_NOT_AVAILABLE` | `Offer has expired` | Authorized acceptance executes at or after the offer deadline; funds, inventory and contract state stay unchanged. |
 | `ERR_CANNOT_PUBLISH` | `Only draft offers owned by the company can be published` | Internal publication targets another owner or a non-DRAFT. |
 | `ERR_MAX_DRAFTS_REACHED` | `Maximum 5 open draft offers per company` | A sixth open draft would be created. |
 | `ERR_CONTRACT_NOT_ACTIVE` | `Target contract is not active` | Dispatch targets a non-ACTIVE contract or executes strictly after its deadline. |
