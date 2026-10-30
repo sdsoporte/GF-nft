@@ -34,6 +34,9 @@ Read that file before changing request or response shapes.
 
 3. Press **Connect**, then **Start one R1 batch**. Watch the tick advance and the
    inventory change only in later server snapshots.
+4. To sell, start the backend with `GF_OWNER_ID`, press **Open owner session**,
+   then draft, publish, cancel or dispatch through the confirmation panel. See
+   [selling your output](../docs/gameplay/owner-selling.md).
 
 ## Connection rules the client enforces
 
@@ -47,17 +50,21 @@ Read that file before changing request or response shapes.
 | Busy line | A line running a batch owns that work: the server rejects a second production request with `ERR_LINE_BUSY` instead of replacing the batch. The screen shows the rejection; it never retries automatically. |
 | Session identity | Closing or failing a session bumps a generation counter, and payloads from the old generation are discarded. |
 | Server authority | The client never sends a company id, tick, sequence number or batch count, and never mutates inventory. |
+| Owner session | The root bearer is exchanged for a short-lived owner session for the seller loop only. The owner token stays in memory, is masked and redacted from every message, and never enters the read or production path; a `401` on a financial call drops the owner session but keeps the connected read session. |
+| Financial confirmation | No offer, publish, cancel or dispatch is sent without an explicit confirmation that shows the terms and the engine consequences (escrow, collateral, market fee, default indemnity) the server reported. Declining sends nothing. |
+| Queued versus final | `202 ENQUEUED_FOR_NEXT_TICK` is shown as admitted, never as done. The panel follows the caller's `idempotency_key` through the seller read model until the engine reports `executed` or `rejected`. |
 
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `scenes/main.tscn` | Visible factory screen: connection controls, status, match/tick, credits/energy, inventory, lines, line controls (pause/resume/priority), recipes, R1 action, and read-only market visibility (public offers and own contracts). |
-| `scripts/main.gd` | Scene wiring; renders snapshots, market offers, own contracts, and forwards player production, line control, and market refresh actions. |
+| `scenes/main.tscn` | Visible factory screen: connection controls, status, match/tick, credits/energy, inventory, lines, line controls (pause/resume/priority), recipes, R1 action, read-only market visibility (public offers and own contracts), and the owner-session selling panel with its human confirmation. |
+| `scripts/main.gd` | Scene wiring; renders snapshots, market offers, own contracts and the seller read model, and forwards player production, line control, market refresh and confirmed selling actions. |
 | `scripts/protocol/endpoint_policy.gd` | URL and token policy (plaintext loopback only, no credentials in URLs). |
-| `scripts/protocol/factory_protocol.gd` | Validating parser for `/health`, `/v1/state`, `/v1/production`, `/v1/lines/{lineId}/*`, `/v1/commands/<id>`, `/v1/market/offers`, `/v1/contracts` and errors; builds production and line control requests. |
+| `scripts/protocol/factory_protocol.gd` | Validating parser for `/health`, `/v1/state`, `/v1/production`, `/v1/lines/{lineId}/*`, `/v1/commands/<id>`, `/v1/market/offers`, `/v1/contracts`, the owner-session routes and errors; builds production, line control and owner financial requests. |
 | `scripts/protocol/factory_snapshot.gd` | Detached snapshot data object (no behavior, no mutation). |
-| `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, line controls, market offers, contracts, command status, error redaction. |
+| `scripts/trading/owner_selling_flow.gd` | Pure confirmation flow for the seller loop: offer-form intent, per-step confirmation text built from server-reported consequences, and queued/final feedback. |
+| `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, line controls, market offers, contracts, owner session and financial commands, command status, error redaction. |
 | `scripts/view/factory_view_model.gd` | Pure snapshot, market offers and contracts → screen text projection. |
 | `scripts/dev/factory_smoke.gd` | Optional `--smoke` runner that drives the visible scene against a real backend. |
 | `tests/` | Headless Godot suites with contract fixtures. |
@@ -94,7 +101,6 @@ independent ore extractor can replenish `RAW_ORE` while the batch runs, so the
 smoke fails only when input dropped deeper than the recipe allows.
 
 ## Optional local factory art
-
 See [local asset setup and requirements](../docs/art/asset-requirements.md)
 for the isometric-view asset catalogue, missing originals and license rules.
 Third-party files belong only in ignored `game/local_assets/`; obtain them
@@ -111,8 +117,15 @@ checkout runs without Funplay. To keep the plugin available locally, create
 ## Limits of this slice
 
 - One metallurgy company and one recipe (R1) on an idle line.
-- The visible slice exposes read-only market offers and company contracts; trading mutations (accept, cancel, dispatch) are Milestone B.
-- Wallets or NPC automation are not exposed in this scene.
+- The visible slice lets the player sell (draft, publish, cancel, dispatch) after
+  an explicit confirmation. Buying as the player, new economic policies, fees
+  and construction or conveyor simulation are not part of it.
+- NPC buyers run inside the authoritative tick loop; the screen never drives
+  their policy. One approved configuration exception gives `comp_metal_02` a
+  five-`IRON_INGOT` target buffer (one R1 batch) so R1 output can actually be
+  sold; every other buffer, the starting stock, prices, fees and the buying
+  algorithm are unchanged. See
+  [selling your output](../docs/gameplay/owner-selling.md).
 - An unconfigured backend is in memory; with `GF_SQLITE_PATH` (the Compose
   default), SQLite re-adopts the match after restart. See the backend guide.
 - Loopback deployment only; this is not an internet-ready authentication story.

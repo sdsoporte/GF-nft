@@ -1,0 +1,9 @@
+{
+  "status": "ENQUEUED_FOR_NEXT_TICK",
+  "scheduledTick": 43,
+  "itemId": "IRON_INGOT",
+  "quantity": 10,
+  "unitPriceCredits": 5,
+  "deadlineTick": 53,
+  "targetBuyerId": null
+}

@@ -1,0 +1,24 @@
+{
+  "tick": 8,
+  "companyId": "comp_metal_01",
+  "availableCredits": 2000,
+  "marketFeeBps": 200,
+  "contracts": [
+    {
+      "contractId": "cnt_8_1",
+      "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": null,
+      "itemId": "IRON_INGOT",
+      "totalQuantity": 10,
+      "deliveredQuantity": 0,
+      "unitPriceCredits": 5,
+      "totalValueCredits": 50,
+      "collateralSellerCredits": 10,
+      "createdAtTick": 7,
+      "deadlineTick": 300,
+      "status": "DRAFT",
+      "settledAtTick": null
+    }
+  ],
+  "recentCommands": []
+}

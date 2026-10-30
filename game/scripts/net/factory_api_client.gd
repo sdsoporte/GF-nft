@@ -19,6 +19,9 @@ signal line_control_queued(ack: Dictionary)
 signal command_status_changed(command: Dictionary)
 signal market_offers_received(offers_data: Dictionary)
 signal contracts_received(contracts_data: Dictionary)
+signal owner_session_opened(meta: Dictionary)
+signal owner_selling_received(selling_data: Dictionary)
+signal owner_command_queued(ack: Dictionary)
 signal request_failed(message: String, fatal: bool)
 
 const EXCHANGE_NONE := ""
@@ -29,6 +32,19 @@ const EXCHANGE_LINE_CONTROL := "line_control"
 const EXCHANGE_COMMAND := "command"
 const EXCHANGE_MARKET_OFFERS := "market_offers"
 const EXCHANGE_CONTRACTS := "contracts"
+const EXCHANGE_OWNER_SESSION := "owner_session"
+const EXCHANGE_OWNER_SELLING := "owner_selling"
+const EXCHANGE_OWNER_DRAFT := "owner_draft"
+const EXCHANGE_OWNER_PUBLISH := "owner_publish"
+const EXCHANGE_OWNER_CANCEL := "owner_cancel"
+const EXCHANGE_OWNER_DISPATCH := "owner_dispatch"
+
+## Which credential one exchange may present. The root session and the owner
+## session never share a request: reads use the root bearer, the seller loop
+## uses the short-lived owner bearer.
+const AUTH_NONE := ""
+const AUTH_ROOT := "root"
+const AUTH_OWNER := "owner"
 
 const STATE_DISCONNECTED := "disconnected"
 const STATE_CONNECTING := "connecting"
@@ -49,6 +65,7 @@ const MAX_ERROR_MESSAGE_LENGTH := 240
 var _http: HTTPRequest
 var _base_url: String = ""
 var _token: String = ""
+var _owner_token: String = ""
 var _generation: int = 0
 var _exchange: String = EXCHANGE_NONE
 var _exchange_generation: int = 0
@@ -81,11 +98,12 @@ func open_session(url: String, token: String) -> Dictionary:
 
 	_base_url = String(policy["url"])
 	_token = token
+	_owner_token = ""
 	_generation += 1
 	_exchange = EXCHANGE_NONE
 	_http_started = false
 	_set_connection_state(STATE_CONNECTING, "Contacting %s" % _base_url)
-	if not _begin_exchange(EXCHANGE_HEALTH, PATH_HEALTH, HTTPClient.METHOD_GET, "", false):
+	if not _begin_exchange(EXCHANGE_HEALTH, PATH_HEALTH, HTTPClient.METHOD_GET, "", AUTH_NONE):
 		_fail("The client could not start its health request to %s." % _base_url, true)
 		return {"ok": false, "error": "The client could not start its health request."}
 	return {"ok": true, "error": ""}
@@ -98,6 +116,7 @@ func close_session(reason: String) -> void:
 	_exchange = EXCHANGE_NONE
 	_generation += 1
 	_token = ""
+	_owner_token = ""
 	_connection_state = STATE_DISCONNECTED
 	connection_state_changed.emit(STATE_DISCONNECTED, reason)
 
@@ -105,7 +124,7 @@ func close_session(reason: String) -> void:
 func poll() -> bool:
 	if _connection_state != STATE_CONNECTED or is_busy():
 		return false
-	return _begin_exchange(EXCHANGE_STATE, PATH_STATE, HTTPClient.METHOD_GET, "", true)
+	return _begin_exchange(EXCHANGE_STATE, PATH_STATE, HTTPClient.METHOD_GET, "", AUTH_ROOT)
 
 
 func poll_command(command_id: String) -> bool:
@@ -113,7 +132,7 @@ func poll_command(command_id: String) -> bool:
 		return false
 	if not FactoryProtocol.is_safe_identifier(command_id, FactoryProtocol.MAX_IDENTIFIER_LENGTH):
 		return false
-	return _begin_exchange(EXCHANGE_COMMAND, PATH_COMMANDS + command_id, HTTPClient.METHOD_GET, "", true)
+	return _begin_exchange(EXCHANGE_COMMAND, PATH_COMMANDS + command_id, HTTPClient.METHOD_GET, "", AUTH_ROOT)
 
 
 func submit_production(line_id: String, recipe_id: String) -> Dictionary:
@@ -126,7 +145,7 @@ func submit_production(line_id: String, recipe_id: String) -> Dictionary:
 	var payload := FactoryProtocol.build_production_request(request_id, line_id, recipe_id)
 	if not payload["ok"]:
 		return {"ok": false, "error": String(payload["error"])}
-	if not _begin_exchange(EXCHANGE_PRODUCTION, PATH_PRODUCTION, HTTPClient.METHOD_POST, String(payload["value"]), true):
+	if not _begin_exchange(EXCHANGE_PRODUCTION, PATH_PRODUCTION, HTTPClient.METHOD_POST, String(payload["value"]), AUTH_ROOT):
 		return {"ok": false, "error": "The client could not start its production request."}
 	return {"ok": true, "error": ""}
 
@@ -173,7 +192,7 @@ func _submit_line_control(line_id: String, action: String, priority: int = 0) ->
 	if path.is_empty():
 		return {"ok": false, "error": "Invalid line identifier."}
 
-	if not _begin_exchange(EXCHANGE_LINE_CONTROL, path, HTTPClient.METHOD_POST, String(payload["value"]), true):
+	if not _begin_exchange(EXCHANGE_LINE_CONTROL, path, HTTPClient.METHOD_POST, String(payload["value"]), AUTH_ROOT):
 		return {"ok": false, "error": "The client could not start its line control request."}
 	return {"ok": true, "error": ""}
 
@@ -181,13 +200,130 @@ func _submit_line_control(line_id: String, action: String, priority: int = 0) ->
 func poll_market_offers() -> bool:
 	if _connection_state != STATE_CONNECTED or is_busy():
 		return false
-	return _begin_exchange(EXCHANGE_MARKET_OFFERS, PATH_MARKET_OFFERS, HTTPClient.METHOD_GET, "", true)
+	return _begin_exchange(EXCHANGE_MARKET_OFFERS, PATH_MARKET_OFFERS, HTTPClient.METHOD_GET, "", AUTH_ROOT)
 
 
 func poll_contracts() -> bool:
 	if _connection_state != STATE_CONNECTED or is_busy():
 		return false
-	return _begin_exchange(EXCHANGE_CONTRACTS, PATH_CONTRACTS, HTTPClient.METHOD_GET, "", true)
+	return _begin_exchange(EXCHANGE_CONTRACTS, PATH_CONTRACTS, HTTPClient.METHOD_GET, "", AUTH_ROOT)
+
+
+## Exchanges the root bearer for one short-lived owner session. The session
+## token is kept in memory only; the root bearer is what authorizes this call.
+func open_owner_session() -> Dictionary:
+	if _connection_state != STATE_CONNECTED:
+		return {"ok": false, "error": "Connect to the server before opening an owner session."}
+	if is_busy():
+		return {"ok": false, "error": "A request is already in flight; try again in a moment."}
+	if not _begin_exchange(EXCHANGE_OWNER_SESSION, FactoryProtocol.OWNER_SESSION_PATH, HTTPClient.METHOD_POST, "", AUTH_ROOT):
+		return {"ok": false, "error": "The client could not start its owner session request."}
+	return {"ok": true, "error": ""}
+
+
+## Local sign-out: the token is dropped here and lapses on the server deadline.
+func close_owner_session() -> void:
+	_owner_token = ""
+
+
+func has_owner_session() -> bool:
+	return not _owner_token.is_empty()
+
+
+## Reads the seller loop: own contracts with engine consequences and the
+## acting company's recent command outcomes.
+func poll_owner_selling() -> bool:
+	if _connection_state != STATE_CONNECTED or is_busy() or not has_owner_session():
+		return false
+	return _begin_exchange(
+		EXCHANGE_OWNER_SELLING, FactoryProtocol.OWNER_SELLING_PATH, HTTPClient.METHOD_GET, "", AUTH_OWNER
+	)
+
+
+func draft_offer(
+	item_id: String,
+	quantity: int,
+	unit_price_credits: int,
+	deadline_tick: int,
+	target_buyer_id: String = ""
+) -> Dictionary:
+	var guard := _owner_write_guard("drafting an offer")
+	if not guard["ok"]:
+		return guard
+	var key := _next_idempotency_key("sell_draft")
+	var payload := FactoryProtocol.build_owner_draft_request(
+		key, item_id, quantity, unit_price_credits, deadline_tick, target_buyer_id
+	)
+	if not payload["ok"]:
+		return {"ok": false, "error": String(payload["error"])}
+	if not _begin_exchange(
+		EXCHANGE_OWNER_DRAFT,
+		FactoryProtocol.OWNER_CONTRACTS_PATH,
+		HTTPClient.METHOD_POST,
+		String(payload["value"]),
+		AUTH_OWNER
+	):
+		return {"ok": false, "error": "The client could not start its draft offer request."}
+	return {"ok": true, "error": "", "idempotencyKey": key}
+
+
+func publish_offer(contract_id: String) -> Dictionary:
+	return _submit_owner_contract_action(contract_id, "publish")
+
+
+func cancel_offer(contract_id: String) -> Dictionary:
+	return _submit_owner_contract_action(contract_id, "cancel")
+
+
+func dispatch_offer(contract_id: String, quantity_to_ship: int) -> Dictionary:
+	var guard := _owner_write_guard("dispatching goods")
+	if not guard["ok"]:
+		return guard
+	var key := _next_idempotency_key("sell_dispatch")
+	var payload := FactoryProtocol.build_owner_dispatch_request(key, quantity_to_ship)
+	if not payload["ok"]:
+		return {"ok": false, "error": String(payload["error"])}
+	var path := FactoryProtocol.owner_contract_path(contract_id, "dispatch")
+	if path.is_empty():
+		return {"ok": false, "error": "Invalid contract identifier."}
+	if not _begin_exchange(
+		EXCHANGE_OWNER_DISPATCH, path, HTTPClient.METHOD_POST, String(payload["value"]), AUTH_OWNER
+	):
+		return {"ok": false, "error": "The client could not start its dispatch request."}
+	return {"ok": true, "error": "", "idempotencyKey": key}
+
+
+func _submit_owner_contract_action(contract_id: String, action: String) -> Dictionary:
+	var guard := _owner_write_guard("%s an offer" % action)
+	if not guard["ok"]:
+		return guard
+	var key := _next_idempotency_key("sell_%s" % action)
+	var payload := FactoryProtocol.build_owner_action_request(key)
+	if not payload["ok"]:
+		return {"ok": false, "error": String(payload["error"])}
+	var path := FactoryProtocol.owner_contract_path(contract_id, action)
+	if path.is_empty():
+		return {"ok": false, "error": "Invalid contract identifier."}
+	var kind := EXCHANGE_OWNER_PUBLISH if action == "publish" else EXCHANGE_OWNER_CANCEL
+	if not _begin_exchange(kind, path, HTTPClient.METHOD_POST, String(payload["value"]), AUTH_OWNER):
+		return {"ok": false, "error": "The client could not start its %s request." % action}
+	return {"ok": true, "error": "", "idempotencyKey": key}
+
+
+func _owner_write_guard(action: String) -> Dictionary:
+	if _connection_state != STATE_CONNECTED:
+		return {"ok": false, "error": "Connect to the server before %s." % action}
+	if not has_owner_session():
+		return {"ok": false, "error": "Open an owner session before %s." % action}
+	if is_busy():
+		return {"ok": false, "error": "A request is already in flight; try again in a moment."}
+	return {"ok": true, "error": ""}
+
+
+## One caller key per financial command: durable admission refuses reuse.
+func _next_idempotency_key(prefix: String) -> String:
+	_request_counter += 1
+	return FactoryProtocol.build_request_id(prefix, _request_counter)
 
 
 ## Applies one finished response. Public so tests can exercise the session rules
@@ -232,6 +368,12 @@ func deliver_exchange_result(
 			_handle_market_offers(response_code, body)
 		EXCHANGE_CONTRACTS:
 			_handle_contracts(response_code, body)
+		EXCHANGE_OWNER_SESSION:
+			_handle_owner_session(response_code, body)
+		EXCHANGE_OWNER_SELLING:
+			_handle_owner_selling(response_code, body)
+		EXCHANGE_OWNER_DRAFT, EXCHANGE_OWNER_PUBLISH, EXCHANGE_OWNER_CANCEL, EXCHANGE_OWNER_DISPATCH:
+			_handle_owner_command(response_code, body)
 	return true
 
 
@@ -258,7 +400,6 @@ func get_base_url() -> String:
 func has_credentials() -> bool:
 	return not _token.is_empty()
 
-
 func follows_redirects() -> bool:
 	return _http.max_redirects > NO_REDIRECTS
 
@@ -267,24 +408,29 @@ func get_http_timeout_seconds() -> float:
 	return _http.timeout
 
 
-## Safe for logs and tests: never contains the bearer token.
+## Safe for logs and tests: never contains either bearer token.
 func describe_session() -> String:
-	return "FactoryApiClient(url=%s, state=%s, token=%s, pending=%s)" % [
+	return "FactoryApiClient(url=%s, state=%s, token=%s, owner=%s, pending=%s)" % [
 		_base_url if not _base_url.is_empty() else "-",
 		_connection_state,
 		"set" if not _token.is_empty() else "unset",
+		"set" if not _owner_token.is_empty() else "unset",
 		_exchange if not _exchange.is_empty() else "none",
 	]
 
 
-func _begin_exchange(kind: String, path: String, method: int, body: String, with_auth: bool) -> bool:
+func _begin_exchange(kind: String, path: String, method: int, body: String, auth: String) -> bool:
 	if _exchange != EXCHANGE_NONE:
 		return false
 	var headers := PackedStringArray(["Accept: application/json"])
-	if with_auth:
+	if auth == AUTH_ROOT:
 		if _token.is_empty():
 			return false
 		headers.append("Authorization: Bearer %s" % _token)
+	elif auth == AUTH_OWNER:
+		if _owner_token.is_empty():
+			return false
+		headers.append("Authorization: Bearer %s" % _owner_token)
 	if method == HTTPClient.METHOD_POST:
 		headers.append("Content-Type: application/json")
 	_exchange = kind
@@ -309,7 +455,7 @@ func _handle_health(response_code: int, body: String) -> void:
 		return
 	_set_connection_state(STATE_CONNECTED, "Connected to %s" % _base_url)
 	if _exchange == EXCHANGE_NONE:
-		_begin_exchange(EXCHANGE_STATE, PATH_STATE, HTTPClient.METHOD_GET, "", true)
+		_begin_exchange(EXCHANGE_STATE, PATH_STATE, HTTPClient.METHOD_GET, "", AUTH_ROOT)
 
 
 func _handle_state(response_code: int, body: String) -> void:
@@ -378,6 +524,64 @@ func _handle_contracts(response_code: int, body: String) -> void:
 	contracts_received.emit(parsed["value"])
 
 
+func _handle_owner_session(response_code: int, body: String) -> void:
+	if response_code == 201:
+		var parsed := FactoryProtocol.parse_owner_session(body)
+		if not parsed["ok"]:
+			_fail(
+				"The backend owner session response is not compatible: %s" % String(parsed["error"]),
+				false
+			)
+			return
+		var session: Dictionary = parsed["value"]
+		_owner_token = String(session["token"])
+		owner_session_opened.emit({
+			"ownerId": String(session["ownerId"]),
+			"expiresAtUtc": String(session["expiresAtUtc"]),
+		})
+		return
+	_fail(
+		_http_failure_message("owner session request", response_code, body), _is_fatal_status(response_code)
+	)
+
+
+func _handle_owner_selling(response_code: int, body: String) -> void:
+	if response_code == 401:
+		_expire_owner_session("The owner session is no longer valid; open a new one before selling.")
+		return
+	if response_code != 200:
+		_fail(_http_failure_message("seller read", response_code, body), false)
+		return
+	var parsed := FactoryProtocol.parse_owner_selling(body)
+	if not parsed["ok"]:
+		_fail("The backend seller payload is not compatible: %s" % String(parsed["error"]), false)
+		return
+	owner_selling_received.emit(parsed["value"])
+
+
+func _handle_owner_command(response_code: int, body: String) -> void:
+	if response_code == 202:
+		var parsed := FactoryProtocol.parse_owner_ack(body)
+		if not parsed["ok"]:
+			_fail(
+				"The backend owner acknowledgement is not compatible: %s" % String(parsed["error"]),
+				false
+			)
+			return
+		owner_command_queued.emit(parsed["value"])
+		return
+	if response_code == 401:
+		_expire_owner_session("The owner session is no longer valid; nothing was admitted.")
+		return
+	_fail(_http_failure_message("owner financial request", response_code, body), false)
+
+
+## An owner refusal ends only the owner session; the root read session stays.
+func _expire_owner_session(message: String) -> void:
+	_owner_token = ""
+	request_failed.emit(_redact(message), false)
+
+
 func _http_failure_message(action: String, response_code: int, body: String) -> String:
 	var parsed := FactoryProtocol.parse_error(body)
 	if parsed["ok"]:
@@ -406,6 +610,7 @@ func _fail(message: String, fatal: bool) -> void:
 		_exchange = EXCHANGE_NONE
 		_generation += 1
 		_token = ""
+		_owner_token = ""
 		_connection_state = STATE_ERROR
 		connection_state_changed.emit(STATE_ERROR, safe)
 	request_failed.emit(safe, fatal)
@@ -422,11 +627,13 @@ func _cancel_transport() -> void:
 	_http_started = false
 
 
-## Removes the bearer token from any text that could reach the screen or a log.
+## Removes either bearer token from any text that could reach a log or screen.
 func _redact(text: String) -> String:
 	var safe := text.replace("\n", " ").replace("\r", " ").replace("\t", " ").strip_edges()
 	if not _token.is_empty():
 		safe = safe.replace(_token, "[redacted]")
+	if not _owner_token.is_empty():
+		safe = safe.replace(_owner_token, "[redacted]")
 	if safe.length() > MAX_ERROR_MESSAGE_LENGTH:
 		safe = safe.substr(0, MAX_ERROR_MESSAGE_LENGTH) + "..."
 	return safe
