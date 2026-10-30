@@ -3,7 +3,8 @@
 This Godot 4.7 project is a **client**. A separate TypeScript backend owns the
 match, its tick clock and every mutation. The screen reads snapshots, shows the
 metal factory that the server selected, and asks the server to start one R1
-batch. Nothing in GDScript ticks, spends or produces resources.
+batch or control production lines (pause, resume, priority 1–3). Nothing in GDScript
+ticks, spends or produces resources.
 
 The contract is frozen in [`../contracts/factory-api.md`](../contracts/factory-api.md).
 Read that file before changing request or response shapes.
@@ -51,12 +52,12 @@ Read that file before changing request or response shapes.
 
 | Path | Role |
 | --- | --- |
-| `scenes/main.tscn` | Visible factory screen: connection controls, status, match/tick, credits/energy, inventory, lines, recipes, R1 action. |
-| `scripts/main.gd` | Scene wiring; renders snapshots and forwards the two user actions. |
+| `scenes/main.tscn` | Visible factory screen: connection controls, status, match/tick, credits/energy, inventory, lines, line controls (pause/resume/priority), recipes, R1 action. |
+| `scripts/main.gd` | Scene wiring; renders snapshots and forwards player production and line control actions. |
 | `scripts/protocol/endpoint_policy.gd` | URL and token policy (plaintext loopback only, no credentials in URLs). |
-| `scripts/protocol/factory_protocol.gd` | Validating parser for `/health`, `/v1/state`, `/v1/production`, `/v1/commands/<id>` and errors; builds the R1 request. |
+| `scripts/protocol/factory_protocol.gd` | Validating parser for `/health`, `/v1/state`, `/v1/production`, `/v1/lines/{lineId}/*`, `/v1/commands/<id>` and errors; builds production and line control requests. |
 | `scripts/protocol/factory_snapshot.gd` | Detached snapshot data object (no behavior, no mutation). |
-| `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, command status, error redaction. |
+| `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, line controls, command status, error redaction. |
 | `scripts/view/factory_view_model.gd` | Pure snapshot → screen text projection. |
 | `scripts/dev/factory_smoke.gd` | Optional `--smoke` runner that drives the visible scene against a real backend. |
 | `tests/` | Headless Godot suites with contract fixtures. |

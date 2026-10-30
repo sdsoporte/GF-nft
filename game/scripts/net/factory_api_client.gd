@@ -15,6 +15,7 @@ extends Node
 signal connection_state_changed(state: String, message: String)
 signal snapshot_received(snapshot: FactorySnapshot)
 signal production_queued(ack: Dictionary)
+signal line_control_queued(ack: Dictionary)
 signal command_status_changed(command: Dictionary)
 signal request_failed(message: String, fatal: bool)
 
@@ -22,6 +23,7 @@ const EXCHANGE_NONE := ""
 const EXCHANGE_HEALTH := "health"
 const EXCHANGE_STATE := "state"
 const EXCHANGE_PRODUCTION := "production"
+const EXCHANGE_LINE_CONTROL := "line_control"
 const EXCHANGE_COMMAND := "command"
 
 const STATE_DISCONNECTED := "disconnected"
@@ -123,6 +125,53 @@ func submit_production(line_id: String, recipe_id: String) -> Dictionary:
 	return {"ok": true, "error": ""}
 
 
+func submit_line_pause(line_id: String) -> Dictionary:
+	return _submit_line_control(line_id, "pause")
+
+
+func submit_line_resume(line_id: String) -> Dictionary:
+	return _submit_line_control(line_id, "resume")
+
+
+func submit_line_priority(line_id: String, priority: int) -> Dictionary:
+	return _submit_line_control(line_id, "priority", priority)
+
+
+func _submit_line_control(line_id: String, action: String, priority: int = 0) -> Dictionary:
+	if _connection_state != STATE_CONNECTED:
+		return {"ok": false, "error": "Connect to the server before controlling a line."}
+	if is_busy():
+		return {"ok": false, "error": "A request is already in flight; try again in a moment."}
+	if not FactoryProtocol.is_safe_identifier(line_id, FactoryProtocol.MAX_IDENTIFIER_LENGTH):
+		return {"ok": false, "error": "lineId must be a server-provided line identifier using A-Z, a-z, 0-9, '_' or '-'."}
+
+	_request_counter += 1
+	var request_id := FactoryProtocol.build_request_id("godot", _request_counter)
+	var payload: Dictionary
+	var path: String
+	match action:
+		"pause":
+			payload = FactoryProtocol.build_line_pause_request(request_id)
+			path = FactoryProtocol.line_pause_path(line_id)
+		"resume":
+			payload = FactoryProtocol.build_line_resume_request(request_id)
+			path = FactoryProtocol.line_resume_path(line_id)
+		"priority":
+			payload = FactoryProtocol.build_line_priority_request(request_id, priority)
+			path = FactoryProtocol.line_priority_path(line_id)
+		_:
+			return {"ok": false, "error": "Unknown line control action: %s" % action}
+
+	if not payload["ok"]:
+		return {"ok": false, "error": String(payload["error"])}
+	if path.is_empty():
+		return {"ok": false, "error": "Invalid line identifier."}
+
+	if not _begin_exchange(EXCHANGE_LINE_CONTROL, path, HTTPClient.METHOD_POST, String(payload["value"]), true):
+		return {"ok": false, "error": "The client could not start its line control request."}
+	return {"ok": true, "error": ""}
+
+
 ## Applies one finished response. Public so tests can exercise the session rules
 ## without a live server; the HTTP callback uses the same path.
 func deliver_exchange_result(
@@ -157,6 +206,8 @@ func deliver_exchange_result(
 			_handle_state(response_code, body)
 		EXCHANGE_PRODUCTION:
 			_handle_production(response_code, body)
+		EXCHANGE_LINE_CONTROL:
+			_handle_line_control(response_code, body)
 		EXCHANGE_COMMAND:
 			_handle_command(response_code, body)
 	return true
@@ -259,6 +310,17 @@ func _handle_production(response_code: int, body: String) -> void:
 		production_queued.emit(parsed["ack"])
 		return
 	_fail(_http_failure_message("production request", response_code, body), _is_fatal_status(response_code))
+
+
+func _handle_line_control(response_code: int, body: String) -> void:
+	if response_code == 202:
+		var parsed := FactoryProtocol.parse_line_control_ack(body)
+		if not parsed["ok"]:
+			_fail("The backend line control acknowledgement is not compatible: %s" % String(parsed["error"]), false)
+			return
+		line_control_queued.emit(parsed["ack"])
+		return
+	_fail(_http_failure_message("line control request", response_code, body), _is_fatal_status(response_code))
 
 
 func _handle_command(response_code: int, body: String) -> void:
