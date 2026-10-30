@@ -62,7 +62,7 @@ SESSION=$(curl -s -X POST http://127.0.0.1:8787/v1/owner/sessions \
   -H "Authorization: Bearer $GF_API_TOKEN" | jq -r .token)
 GRANT=$(curl -s -X POST http://127.0.0.1:8787/v1/owner/grants \
   -H "Authorization: Bearer $SESSION" -H 'content-type: application/json' \
-  -d '{"phaseMode":"PHASE_1B_READ_WRITE","scopes":["factory:read","inventory:read","market:read","production:write","contracts:draft","contracts:read","transport:write"]}')
+  -d '{"phaseMode":"PHASE_1B_READ_WRITE","scopes":["factory:read","inventory:read","market:read","production:write","contracts:draft","logistics:write"]}')
 TOKEN=$(printf '%s' "$GRANT" | jq -r .token)
 
 # 3) Discover the catalog
