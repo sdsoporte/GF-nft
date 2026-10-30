@@ -153,7 +153,13 @@ export function driveMidGame(match: FactoryMatch, store: MatchStore): MidGameScr
 
   const offers = match.engine.getAllContracts();
   const expiringOffer = offers.find((contract) => contract.deadlineTick === 40);
-  const activeOffer = offers.find((contract) => contract.totalQuantity === 5);
+  // Issue #55: NPC companies publish surplus offers of their own, and their
+  // IRON_INGOT batch size is 5 too, so quantity alone no longer identifies the
+  // script's targeted offer. Ownership keeps the script on its own contract.
+  const activeOffer = offers.find(
+    (contract) =>
+      contract.sellerCompanyId === SERVER_COMPANY_ID && contract.totalQuantity === 5,
+  );
   assert.ok(expiringOffer, 'the expiring offer must exist before it is accepted');
   assert.ok(activeOffer, 'the accepted offer must exist before it is accepted');
   for (const [label, contractId] of [

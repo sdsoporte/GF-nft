@@ -227,12 +227,15 @@ test('an exact retry returns the same acknowledgement without another command', 
     assert.equal(pendingCommandCount(app), 1);
 
     app.clock.advance(1);
-    assert.equal(executionCount(app), 1);
+    // Issue #55: the shared tick also drives the NPC policies, which enqueue
+    // three opening production targets for comp_metal_02, so the human command
+    // is the fourth execution of the same tick.
+    assert.equal(executionCount(app), 4);
 
     const afterTickRetry = await productionRequest(app, payload);
     assert.equal(afterTickRetry.status, 202);
     assert.deepEqual(afterTickRetry.json, first.json);
-    assert.equal(executionCount(app), 1);
+    assert.equal(executionCount(app), 4, 'the retry still executes nothing new');
   });
 });
 
@@ -254,9 +257,14 @@ test('a reused request ID with a different payload is rejected and keeps the ori
 
     app.clock.advance(1);
     const history = app.handle.match.engine.getExecutionHistory();
-    assert.equal(history.length, 1);
-    assert.equal(history[0].commandId, first.json.commandId);
-    assert.equal(history[0].success, true);
+    // Issue #55: NPC policies execute three opening production targets on the
+    // same tick, so "the original command kept working" is proven by attribution
+    // rather than by the total history length.
+    assert.equal(history.length, 4);
+    const human = history.filter((result) => result.companyId === 'comp_metal_01');
+    assert.equal(human.length, 1, 'the reused request ID must not queue a second command');
+    assert.equal(human[0].commandId, first.json.commandId);
+    assert.equal(human[0].success, true);
   });
 });
 

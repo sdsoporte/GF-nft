@@ -24,7 +24,12 @@ test('tenant history survives a database close/reopen and match recovery', async
     }
     match.advanceTicks();
     const before = match.engine.getExecutionHistory();
-    assert.deepEqual(before.map(result => result.companyId), [TENANT_A, TENANT_B]);
+    // Issue #55: the match tick also runs the NPC policies, so comp_metal_02
+    // (which is also TENANT_B) executes three NPC production targets ahead of
+    // the two tenant commands: NPC decisions are scheduled on the tick they are
+    // taken, so they sort before a command scheduled for the next tick.
+    const tenantResults = before.filter((result) => result.idempotencyKey.startsWith('idem_'));
+    assert.deepEqual(tenantResults.map(result => result.companyId), [TENANT_A, TENANT_B]);
     const matchId = match.matchId;
     closeDatabase(database);
     database = openDatabase(path);
@@ -32,7 +37,7 @@ test('tenant history survives a database close/reopen and match recovery', async
     const restored = new FactoryMatch({ store: createMatchStore(database) });
     assert.equal(restored.matchId, matchId);
     assert.deepEqual(restored.engine.getExecutionHistory(), before);
-    assert.deepEqual(restored.engine.getCompanyExecutionHistory(TENANT_A), [before[0]]);
+    assert.deepEqual(restored.engine.getCompanyExecutionHistory(TENANT_A), [tenantResults[0]]);
     const grant = { ...makeGrant(), matchId };
     const gateway = new McpGateway(restored.engine, { matchId, companyPlayers: { [TENANT_A]: `player_${TENANT_A}` } });
     gateway.registerGrant(grant);

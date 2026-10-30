@@ -17,6 +17,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { getRecipe, getRecipeProfile } from './domain/recipeCatalog.ts';
+import { NpcController } from './engine/npc/NpcController.ts';
 import type {
   CommandExecutionResult,
   CompanyState,
@@ -185,6 +186,8 @@ export class FactoryMatch {
   public readonly matchId: string;
   public readonly tickIntervalMs: number;
   public readonly engine: SimulatorEngine;
+  /** Issue #55: drives NPC companies inside the authoritative tick loop. */
+  private readonly npcController: NpcController;
 
   /** requestId -> acknowledged command and its payload fingerprint. */
   private readonly requestLedger = new Map<string, { fingerprint: string; commandId: string }>();
@@ -233,6 +236,8 @@ export class FactoryMatch {
     this.matchId = boot?.metadata.matchId ?? options.matchId ?? createMatchId();
     this.engine = new SimulatorEngine(this.seed, this.matchId);
     this.engine.initializeStandardMatch();
+    // Issue #55: NPC policies run inside the authoritative match tick loop.
+    this.npcController = new NpcController({ seed: this.seed });
     this.tickIntervalMs = boot?.metadata.tickIntervalMs ?? requestedTickIntervalMs;
 
     const store = this.store;
@@ -416,8 +421,15 @@ export class FactoryMatch {
     for (let index = 0; index < count; index += 1) {
       const checkpoint = this.engine.createCheckpoint();
       try {
+        // Issue #55: NPC policies evaluate before each authoritative tick and
+        // enqueue their commands through the same queue; decisions are a pure
+        // function of (match state, tick, seed), so replay, restart and
+        // failed-tick recovery reproduce them exactly.
+        const npcCommands = this.npcController.stepTick(this.engine);
         this.engine.processTick();
-        this.commitTickProgress();
+        // The NPC commands skipped the store-admission path, so their dedupe
+        // keys are persisted with the tick that enqueued them.
+        this.commitTickProgress(npcCommands);
       } catch (error) {
         // Undo only this tick; anything committed before it stays committed.
         this.engine.restoreCheckpoint(checkpoint);
@@ -611,17 +623,25 @@ export class FactoryMatch {
    * Fold one tick of engine execution history into the match bookkeeping and
    * persist the whole tick.
    *
-   * One transaction (risk item 4) now covers four things: the `matches`
+   * One transaction (risk item 4) now covers five things: the `matches`
    * counters, the new execution-history rows, the queue rows those results
-   * clear, and the engine snapshot (companies, inventory, lines, contracts,
-   * S5). A crash can therefore never leave the stored tick ahead of the company
-   * rows that describe it, which is the window T3 documented.
+   * clear, the permanent dedupe keys of the NPC commands this tick enqueued,
+   * and the engine snapshot (companies, inventory, lines, contracts, S5). A
+   * crash can therefore never leave the stored tick ahead of the company rows
+   * that describe it, which is the window T3 documented.
+   *
+   * The NPC keys belong to this unit of work because NPC commands never pass
+   * through the store-admission path that records every player key (issue #55).
+   * Recording them here keeps the "dedupe guard is re-armed before the clock
+   * starts" promise true for every queued command, and keeps the pairing
+   * honest: if the tick is refused, the transaction drops the rows and the
+   * engine checkpoint drops the in-memory keys together.
    *
    * Ordering and consistency: the durable write runs first and the in-memory
    * fold second, so memory never holds a status the database refused (see
    * `MatchStore`). The cursor stays monotonic (`Math.max`).
    */
-  private commitTickProgress(): void {
+  private commitTickProgress(npcCommands: readonly EnqueueCommandInput[] = []): void {
     const history = this.engine.getExecutionHistory();
     const folded = history.slice(this.historyCursor);
     const nextCursor = Math.max(this.historyCursor, history.length);
@@ -643,6 +663,13 @@ export class FactoryMatch {
           completedCommandIds: folded.map((result) => result.commandId),
           ...(movements.length ? { movements } : {}),
         });
+        for (const command of npcCommands) {
+          store.repositories.queue.markProcessed({
+            matchId: this.matchId,
+            idempotencyKey: command.idempotencyKey,
+            commandId: command.commandId,
+          });
+        }
         this.persistEngineSnapshot();
       });
     }
