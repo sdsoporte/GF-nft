@@ -35,7 +35,12 @@ import { createMcpRuntime, type McpRuntime } from './mcpRuntime.ts';
 import { handleMcpPost } from './mcp/transport.ts';
 import { GrantIssueError, type GrantIssueInput } from './grantService.ts';
 import { readFactoryConfig } from './config.ts';
-import { IDEMPOTENCY_KEY_REGEX } from './mcp/schemas.ts';
+import type { EnqueueCommandInput, ItemId, SupplyContract } from './domain/types.ts';
+import {
+  DraftSupplyOfferSchema,
+  IDEMPOTENCY_KEY_REGEX,
+  ScheduleInternalTransportSchema,
+} from './mcp/schemas.ts';
 
 /** Hard limit for request bodies. */
 export const MAX_REQUEST_BODY_BYTES = 8 * 1024;
@@ -485,6 +490,297 @@ async function handleLineControl(
   }
 }
 
+/**
+ * Issue #58 (player as seller): the owner-session selling family.
+ *
+ * These routes are additive next to the frozen publication route and reuse its
+ * conventions: owner-session bearer, JSON-only body, one `idempotency_key` for
+ * durable admission, the server-selected acting company and a fixed 202
+ * acknowledgement. Only the offer terms come from the caller; the company, the
+ * command identity and the scheduled tick stay server-owned.
+ *
+ * Value domains are not restated here: the item catalogue, quantity, unit
+ * price, deadline horizon and dispatch quantity bounds are read from the same
+ * command schemas the MCP write tools validate (`./mcp/schemas.ts`).
+ */
+const OWNER_SELLING_MESSAGES = {
+  draft: 'Invalid draft offer request.',
+  cancel: 'Invalid offer cancellation request.',
+  dispatch: 'Invalid dispatch request.',
+  draftMediaType: 'The draft offer request must be application/json.',
+  cancelMediaType: 'The offer cancellation request must be application/json.',
+  dispatchMediaType: 'The dispatch request must be application/json.',
+} as const;
+
+/** Same 400 family the frozen publication route uses, with this route's message. */
+function invalidOwnerPayload(message: string): ErrorDefinition {
+  return { status: 400, body: { error: { code: 'ERR_INVALID_PAYLOAD', message } } };
+}
+
+const OWNER_DUPLICATE_IDEMPOTENCY_KEY: ErrorDefinition = {
+  status: 409,
+  body: { error: { code: 'ERR_DUPLICATE_IDEMPOTENCY_KEY', message: 'idempotency_key duplicate' } },
+};
+
+/** Mirrors the command-value schemas instead of re-declaring their bounds. */
+const OFFER_ITEM_IDS: ReadonlySet<string> = new Set(DraftSupplyOfferSchema.shape.item_id.options);
+const OFFER_QUANTITY = DraftSupplyOfferSchema.shape.quantity;
+const OFFER_UNIT_PRICE = DraftSupplyOfferSchema.shape.unit_price;
+const OFFER_DEADLINE_HORIZON = DraftSupplyOfferSchema.shape.deadline_ticks;
+const OFFER_TARGET_BUYER = DraftSupplyOfferSchema.shape.target_buyer_id;
+const DISPATCH_QUANTITY = ScheduleInternalTransportSchema.shape.quantity_to_ship;
+
+/** Validated `POST /v1/owner/contracts` body. Absolute ticks, no server fields. */
+interface OwnerDraftOfferInput {
+  readonly idempotencyKey: string;
+  readonly itemId: ItemId;
+  readonly quantity: number;
+  readonly unitPriceCredits: number;
+  readonly deadlineTick: number;
+  readonly targetBuyerId?: string;
+}
+
+/** Result of reading one owner JSON body: parsed value, or already answered. */
+type OwnerBodyRead = { readonly ok: true; readonly value: unknown } | { readonly ok: false };
+
+/**
+ * Read and parse one owner JSON body, answering the request itself when the
+ * media type, size or syntax is wrong. `{ ok: false }` means "already answered,
+ * admit nothing".
+ */
+async function readOwnerJsonBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  unsupportedMediaType: string,
+): Promise<OwnerBodyRead> {
+  const mediaType = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
+  if (mediaType !== 'application/json') {
+    await discardBody(req);
+    sendJson(res, 415, { error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: unsupportedMediaType } });
+    return { ok: false };
+  }
+  const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
+  if (!body.ok) {
+    sendError(res, body.reason === 'too_large'
+      ? ERRORS.requestTooLarge
+      : invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson));
+    return { ok: false };
+  }
+  try {
+    return { ok: true, value: JSON.parse(body.text) };
+  } catch {
+    sendError(res, invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson));
+    return { ok: false };
+  }
+}
+
+/** Exact key set: every required key present, nothing else accepted. */
+function hasExactOwnerKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const keys = Object.keys(value);
+  return required.every((key) => keys.includes(key)) &&
+    keys.every((key) => required.includes(key) || optional.includes(key));
+}
+
+function readOwnerIdempotencyKey(value: Record<string, unknown>): string | undefined {
+  const key = value.idempotency_key;
+  return typeof key === 'string' && IDEMPOTENCY_KEY_REGEX.test(key) ? key : undefined;
+}
+
+/**
+ * `POST /v1/owner/contracts` body: offer terms and nothing else.
+ *
+ * `deadline_tick` is an absolute match tick. Its horizon (deadline minus the
+ * current tick) is validated with the existing `deadline_ticks` bounds, so the
+ * engine's execution-time "deadline must be in the future" check holds by
+ * construction. Company, contract id, command id and scheduled tick are not
+ * accepted: the server owns them.
+ */
+function validateOwnerDraftOffer(value: unknown, currentTick: number): OwnerDraftOfferInput | undefined {
+  if (!isPlainObject(value)) return undefined;
+  if (!hasExactOwnerKeys(
+    value,
+    ['idempotency_key', 'item_id', 'quantity', 'unit_price', 'deadline_tick'],
+    ['target_buyer_id'],
+  )) return undefined;
+
+  const idempotencyKey = readOwnerIdempotencyKey(value);
+  if (idempotencyKey === undefined) return undefined;
+
+  const itemId = value.item_id;
+  if (typeof itemId !== 'string' || !OFFER_ITEM_IDS.has(itemId)) return undefined;
+  if (!OFFER_QUANTITY.safeParse(value.quantity).success) return undefined;
+  if (!OFFER_UNIT_PRICE.safeParse(value.unit_price).success) return undefined;
+
+  const deadlineTick = value.deadline_tick;
+  if (typeof deadlineTick !== 'number') return undefined;
+  if (!OFFER_DEADLINE_HORIZON.safeParse(deadlineTick - currentTick).success) return undefined;
+
+  if ('target_buyer_id' in value && !OFFER_TARGET_BUYER.safeParse(value.target_buyer_id).success) {
+    return undefined;
+  }
+  const targetBuyerId = value.target_buyer_id as string | undefined;
+
+  return {
+    idempotencyKey,
+    itemId: itemId as ItemId,
+    quantity: value.quantity as number,
+    unitPriceCredits: value.unit_price as number,
+    deadlineTick,
+    ...(targetBuyerId === undefined ? {} : { targetBuyerId }),
+  };
+}
+
+/** `POST /v1/owner/contracts/<id>/cancel` body: only the durable command key. */
+function validateOwnerCancel(value: unknown): string | undefined {
+  if (!isPlainObject(value) || !hasExactOwnerKeys(value, ['idempotency_key'])) return undefined;
+  return readOwnerIdempotencyKey(value);
+}
+
+/** `POST /v1/owner/contracts/<id>/dispatch` body: key plus the lot to ship. */
+function validateOwnerDispatch(
+  value: unknown,
+): { readonly idempotencyKey: string; readonly quantityToShip: number } | undefined {
+  if (!isPlainObject(value) || !hasExactOwnerKeys(value, ['idempotency_key', 'quantity_to_ship'])) {
+    return undefined;
+  }
+  const idempotencyKey = readOwnerIdempotencyKey(value);
+  if (idempotencyKey === undefined) return undefined;
+  if (!DISPATCH_QUANTITY.safeParse(value.quantity_to_ship).success) return undefined;
+  return { idempotencyKey, quantityToShip: value.quantity_to_ship as number };
+}
+
+/** The server-selected company's own contract, or `undefined` when it is foreign. */
+function findOwnContract(context: HandlerContext, contractId: string): SupplyContract | undefined {
+  const contract = context.match.engine.getContract(contractId);
+  if (!contract) return undefined;
+  return contract.sellerCompanyId === context.match.getServerCompany().companyId
+    ? contract
+    : undefined;
+}
+
+/**
+ * Admit one owner financial command through the publication admission seam.
+ *
+ * Duplicate keys are refused (not silently replayed) exactly like the frozen
+ * publication route, and nothing is enqueued when the store or engine refuses.
+ */
+function admitOwnerCommand(
+  res: ServerResponse,
+  context: HandlerContext,
+  scheduledTick: number,
+  command: EnqueueCommandInput,
+  acknowledgement: Record<string, unknown>,
+): void {
+  if (!context.match.submitMcpCommand(command)) {
+    sendError(res, OWNER_DUPLICATE_IDEMPOTENCY_KEY);
+    return;
+  }
+  sendJson(res, 202, { status: 'ENQUEUED_FOR_NEXT_TICK', scheduledTick, ...acknowledgement });
+}
+
+async function handleOwnerDraftOffer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  context: HandlerContext,
+): Promise<void> {
+  const body = await readOwnerJsonBody(req, res, OWNER_SELLING_MESSAGES.draftMediaType);
+  if (!body.ok) return;
+  const currentTick = context.match.engine.getCurrentTick();
+  const input = validateOwnerDraftOffer(body.value, currentTick);
+  if (!input) {
+    sendError(res, invalidOwnerPayload(OWNER_SELLING_MESSAGES.draft));
+    return;
+  }
+  const scheduledTick = currentTick + 1;
+  admitOwnerCommand(res, context, scheduledTick, {
+    commandId: 'owner_draft',
+    companyId: context.match.getServerCompany().companyId,
+    scheduledTick,
+    idempotencyKey: input.idempotencyKey,
+    type: 'DRAFT_SUPPLY_OFFER',
+    itemId: input.itemId,
+    quantity: input.quantity,
+    unitPriceCredits: input.unitPriceCredits,
+    deadlineTicks: input.deadlineTick,
+    ...(input.targetBuyerId === undefined ? {} : { targetBuyerId: input.targetBuyerId }),
+  }, {
+    itemId: input.itemId,
+    quantity: input.quantity,
+    unitPriceCredits: input.unitPriceCredits,
+    deadlineTick: input.deadlineTick,
+    // An open offer has no designated buyer: the wire says so explicitly.
+    targetBuyerId: input.targetBuyerId ?? null,
+  });
+}
+
+async function handleOwnerCancelOffer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  contractId: string,
+  context: HandlerContext,
+): Promise<void> {
+  const body = await readOwnerJsonBody(req, res, OWNER_SELLING_MESSAGES.cancelMediaType);
+  if (!body.ok) return;
+  const input = validateOwnerCancel(body.value);
+  if (input === undefined) {
+    sendError(res, invalidOwnerPayload(OWNER_SELLING_MESSAGES.cancel));
+    return;
+  }
+  // Eligibility is admission-time only: DRAFT and unaccepted PENDING offers are
+  // cancellable, ACTIVE contracts are not, and anything foreign stays hidden
+  // behind the same generic 404 the publication route uses.
+  const contract = findOwnContract(context, contractId);
+  if (!contract || (contract.status !== 'DRAFT' && contract.status !== 'PENDING')) {
+    sendError(res, ERRORS.notFound);
+    return;
+  }
+  const scheduledTick = context.match.engine.getCurrentTick() + 1;
+  admitOwnerCommand(res, context, scheduledTick, {
+    commandId: 'owner_cancel',
+    companyId: context.match.getServerCompany().companyId,
+    scheduledTick,
+    idempotencyKey: input,
+    type: 'CANCEL_PENDING_OFFER',
+    contractId,
+  }, { contractId });
+}
+
+async function handleOwnerDispatchOffer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  contractId: string,
+  context: HandlerContext,
+): Promise<void> {
+  const body = await readOwnerJsonBody(req, res, OWNER_SELLING_MESSAGES.dispatchMediaType);
+  if (!body.ok) return;
+  const input = validateOwnerDispatch(body.value);
+  if (!input) {
+    sendError(res, invalidOwnerPayload(OWNER_SELLING_MESSAGES.dispatch));
+    return;
+  }
+  // Dispatch is seller-only: a contract whose seller is not the server-selected
+  // company is indistinguishable from an absent one.
+  const contract = findOwnContract(context, contractId);
+  if (!contract || contract.status !== 'ACTIVE') {
+    sendError(res, ERRORS.notFound);
+    return;
+  }
+  const scheduledTick = context.match.engine.getCurrentTick() + 1;
+  admitOwnerCommand(res, context, scheduledTick, {
+    commandId: 'owner_dispatch',
+    companyId: context.match.getServerCompany().companyId,
+    scheduledTick,
+    idempotencyKey: input.idempotencyKey,
+    type: 'SCHEDULE_INTERNAL_TRANSPORT',
+    contractId,
+    quantityToShip: input.quantityToShip,
+  }, { contractId, quantityToShip: input.quantityToShip });
+}
+
 async function handleOwnerRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -499,12 +795,17 @@ async function handleOwnerRequest(
   const collection = path === '/v1/owner/grants';
   const item = /^\/v1\/owner\/grants\/([^/]+)$/.exec(path);
   const publication = /^\/v1\/owner\/contracts\/([^/]+)\/publish$/.exec(path);
-  if (!login && !logout && !collection && !item && !publication) return false;
+  const offerDraft = path === '/v1/owner/contracts';
+  const offerAction = /^\/v1\/owner\/contracts\/([^/]+)\/(cancel|dispatch)$/.exec(path);
+  if (!login && !logout && !collection && !item && !publication && !offerDraft && !offerAction) {
+    return false;
+  }
   const method = req.method ?? 'GET';
   const methodAllowed = login ? method === 'POST'
     : logout ? method === 'DELETE'
     : collection ? method === 'GET' || method === 'POST'
     : publication ? method === 'POST'
+    : offerDraft || offerAction ? method === 'POST'
     : method === 'GET' || method === 'DELETE';
   if (!methodAllowed) {
     await discardBody(req); sendError(res, ERRORS.methodNotAllowed); return true;
@@ -563,6 +864,18 @@ async function handleOwnerRequest(
       return true;
     }
     sendJson(res, 202, { status: 'ENQUEUED_FOR_NEXT_TICK', scheduledTick, contractId });
+    return true;
+  }
+  if (offerDraft) {
+    await handleOwnerDraftOffer(req, res, context);
+    return true;
+  }
+  if (offerAction) {
+    let contractId: string;
+    try { contractId = decodeURIComponent(offerAction[1]); }
+    catch { sendError(res, ERRORS.notFound); return true; }
+    if (offerAction[2] === 'cancel') await handleOwnerCancelOffer(req, res, contractId, context);
+    else await handleOwnerDispatchOffer(req, res, contractId, context);
     return true;
   }
   if (collection && method === 'GET') {
