@@ -22,6 +22,7 @@ func _process(_delta: float) -> bool:
 	_test_environment_prefill(t)
 	_test_command_poll_recovery(t)
 	_test_production_lifecycle_distinction(t)
+	_test_line_controls_in_scene(t)
 	quit(t.finish("test_main_scene"))
 	return true
 
@@ -58,6 +59,11 @@ func _test_scene_boots(t: TestSupport) -> void:
 	t.equal(token_edit.text, "", "no token is prefilled without environment input")
 	t.contains(status_label.text, "Disconnected", "scene opens in a disconnected state")
 	t.check(start_button.disabled, "production cannot start before a snapshot")
+	t.check(_node(main, "PauseButton").disabled, "pause cannot start before a snapshot")
+	t.check(_node(main, "ResumeButton").disabled, "resume cannot start before a snapshot")
+	t.check(_node(main, "Priority1Button").disabled, "p1 cannot start before a snapshot")
+	t.check(_node(main, "Priority2Button").disabled, "p2 cannot start before a snapshot")
+	t.check(_node(main, "Priority3Button").disabled, "p3 cannot start before a snapshot")
 	t.equal(inventory_list.item_count, 0, "inventory list starts empty")
 	t.check(client != null, "scene owns an API client node")
 
@@ -370,6 +376,166 @@ func _test_production_lifecycle_distinction(t: TestSupport) -> void:
 	t.contains(rejected_text, "ERR_LINE_BUSY", "lifecycle: rejection reports error code")
 	t.not_contains(rejected_text, "target applied", "lifecycle: rejected command does not report target applied")
 	t.not_contains(rejected_text, "completed batch", "lifecycle: rejected command does not report completion")
+
+	main.disconnect_from_server()
+	get_root().remove_child(main)
+	main.free()
+	server.stop()
+
+
+func _test_line_controls_in_scene(t: TestSupport) -> void:
+	var server := TCPServer.new()
+	if not t.equal(server.listen(0, "127.0.0.1"), OK, "line controls test owns a loopback listener"):
+		return
+	var url := "http://127.0.0.1:%d" % server.get_local_port()
+	var main := _instantiate()
+
+	# Controls exist on boot and are disabled
+	var pause_btn: Button = _node(main, "PauseButton")
+	var resume_btn: Button = _node(main, "ResumeButton")
+	var p1_btn: Button = _node(main, "Priority1Button")
+	var p2_btn: Button = _node(main, "Priority2Button")
+	var p3_btn: Button = _node(main, "Priority3Button")
+
+	t.check(pause_btn != null, "pause button exists")
+	t.check(resume_btn != null, "resume button exists")
+	t.check(p1_btn != null, "priority 1 button exists")
+	t.check(p2_btn != null, "priority 2 button exists")
+	t.check(p3_btn != null, "priority 3 button exists")
+
+	t.check(pause_btn.disabled, "pause disabled before connection")
+	t.check(resume_btn.disabled, "resume disabled before connection")
+	t.check(p1_btn.disabled, "p1 disabled before connection")
+	t.check(p2_btn.disabled, "p2 disabled before connection")
+	t.check(p3_btn.disabled, "p3 disabled before connection")
+
+	_node(main, "UrlEdit").text = url
+	_node(main, "TokenEdit").text = ENV_TOKEN
+	_node(main, "ConnectButton").pressed.emit()
+	var client: FactoryApiClient = main.get_client()
+	var generation := client.get_generation()
+
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_HEALTH, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("health_ok.json")
+	), "line_ctrl: health accepted")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "line_ctrl: initial snapshot accepted")
+
+	# With connected snapshot, buttons become enabled for selected line (index 0 by default)
+	t.check(not pause_btn.disabled, "pause enabled after snapshot")
+	t.check(not resume_btn.disabled, "resume enabled after snapshot")
+	t.check(not p1_btn.disabled, "p1 enabled after snapshot")
+	t.check(not p2_btn.disabled, "p2 enabled after snapshot")
+	t.check(not p3_btn.disabled, "p3 enabled after snapshot")
+
+	# 1. Pause line 2
+	_node(main, "LinesList").select(1)
+	pause_btn.pressed.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_LINE_CONTROL, "pause request in flight")
+	t.check(pause_btn.disabled, "pause button disabled while request in flight")
+	t.check(_node(main, "StartButton").disabled, "start button disabled while request in flight")
+
+	# Deliver 202 queued ack
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_pause_01","status":"queued"}'
+	), "pause ack accepted")
+	var queued_text: String = main.ui_command_text()
+	t.contains(queued_text, "queued", "command label shows queued status")
+	t.contains(queued_text, "cmd_pause_01", "command label names the command id")
+
+	# Poll command
+	_node(main, "PollTimer").timeout.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_COMMAND, "command poll started")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, HTTPRequest.RESULT_SUCCESS, 200,
+		'{"commandId":"cmd_pause_01","status":"executed","executedAtTick":43}'
+	), "executed status delivered")
+	var executed_text: String = main.ui_command_text()
+	t.contains(executed_text, "executed", "command label reports execution")
+	t.contains(executed_text, "paused", "command label reports line paused")
+	t.contains(executed_text, "comp_metal_01_line_2", "command label reports paused line id")
+	t.not_contains(executed_text, "completed batch", "pause execution does not claim batch completed")
+
+	# Deliver state with paused line 2
+	_node(main, "PollTimer").timeout.emit()
+	var paused_state: Dictionary = JSON.parse_string(t.fixture("state_ok.json"))
+	paused_state["company"]["lines"][1]["status"] = "PAUSED"
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(paused_state)
+	), "paused state delivered")
+	t.contains(main.ui_line_rows()[1], "PAUSED", "line row shows PAUSED")
+
+	# 2. Set priority to 3 on line 2
+	p3_btn.pressed.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_LINE_CONTROL, "priority request in flight")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_prio_03","status":"queued"}'
+	), "priority ack accepted")
+	_node(main, "PollTimer").timeout.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, HTTPRequest.RESULT_SUCCESS, 200,
+		'{"commandId":"cmd_prio_03","status":"executed","executedAtTick":44}'
+	), "priority executed delivered")
+	var prio_text: String = main.ui_command_text()
+	t.contains(prio_text, "executed", "priority command reports executed")
+	t.contains(prio_text, "priority set to 3", "priority command reports priority set to 3")
+
+	# Deliver state with priority 3
+	_node(main, "PollTimer").timeout.emit()
+	var prio_state: Dictionary = JSON.parse_string(JSON.stringify(paused_state))
+	prio_state["company"]["lines"][1]["priority"] = 3
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(prio_state)
+	), "priority state delivered")
+	t.contains(main.ui_line_rows()[1], "priority 3", "line row shows priority 3")
+
+	# 3. Resume line 2
+	resume_btn.pressed.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_LINE_CONTROL, "resume request in flight")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_res_01","status":"queued"}'
+	), "resume ack accepted")
+	_node(main, "PollTimer").timeout.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, HTTPRequest.RESULT_SUCCESS, 200,
+		'{"commandId":"cmd_res_01","status":"executed","executedAtTick":45}'
+	), "resume executed delivered")
+	var res_text: String = main.ui_command_text()
+	t.contains(res_text, "executed", "resume command reports executed")
+	t.contains(res_text, "resumed", "resume command reports resumed")
+
+	# 4. Error handling on line control (non-fatal, shown without auto-retry)
+	pause_btn.pressed.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 403,
+		'{"error":{"code":"FORBIDDEN","message":"Line not owned by company."}}'
+	), "403 delivered")
+	t.contains(main.ui_error_text(), "FORBIDDEN", "error label displays FORBIDDEN")
+	t.contains(main.ui_error_text(), "Line not owned", "error label displays reason")
+	_node(main, "PollTimer").timeout.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_STATE, "poll resumes normal state read, no retry")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(prio_state)
+	), "state delivered after error")
+
+	# 5. Engine rejection on line control command
+	pause_btn.pressed.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_pause_rej","status":"queued"}'
+	), "pause ack accepted")
+	_node(main, "PollTimer").timeout.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, HTTPRequest.RESULT_SUCCESS, 200,
+		'{"commandId":"cmd_pause_rej","status":"rejected","executedAtTick":46,"errorCode":"ERR_LINE_NOT_FOUND"}'
+	), "rejected status delivered")
+	var rej_text: String = main.ui_command_text()
+	t.contains(rej_text, "rejected", "rejection reported")
+	t.contains(rej_text, "ERR_LINE_NOT_FOUND", "rejection error code reported")
 
 	main.disconnect_from_server()
 	get_root().remove_child(main)

@@ -227,6 +227,51 @@ static func build_production_request(request_id: String, line_id: String, recipe
 	return _ok(JSON.stringify(payload))
 
 
+static func build_line_pause_request(request_id: String) -> Dictionary:
+	if not is_valid_request_id(request_id):
+		return _fail("requestId must be 1-%d characters from A-Z, a-z, 0-9, '_' or '-'." % MAX_REQUEST_ID_LENGTH)
+	var payload := {"requestId": request_id}
+	return _ok(JSON.stringify(payload))
+
+
+static func build_line_resume_request(request_id: String) -> Dictionary:
+	if not is_valid_request_id(request_id):
+		return _fail("requestId must be 1-%d characters from A-Z, a-z, 0-9, '_' or '-'." % MAX_REQUEST_ID_LENGTH)
+	var payload := {"requestId": request_id}
+	return _ok(JSON.stringify(payload))
+
+
+static func build_line_priority_request(request_id: String, priority: int) -> Dictionary:
+	if not is_valid_request_id(request_id):
+		return _fail("requestId must be 1-%d characters from A-Z, a-z, 0-9, '_' or '-'." % MAX_REQUEST_ID_LENGTH)
+	if priority < 1 or priority > 3:
+		return _fail("priority must be 1, 2 or 3.")
+	var payload := {"requestId": request_id, "priority": priority}
+	return _ok(JSON.stringify(payload))
+
+
+static func line_pause_path(line_id: String) -> String:
+	if not is_safe_identifier(line_id, MAX_IDENTIFIER_LENGTH):
+		return ""
+	return "/v1/lines/%s/pause" % line_id
+
+
+static func line_resume_path(line_id: String) -> String:
+	if not is_safe_identifier(line_id, MAX_IDENTIFIER_LENGTH):
+		return ""
+	return "/v1/lines/%s/resume" % line_id
+
+
+static func line_priority_path(line_id: String) -> String:
+	if not is_safe_identifier(line_id, MAX_IDENTIFIER_LENGTH):
+		return ""
+	return "/v1/lines/%s/priority" % line_id
+
+
+static func parse_line_control_ack(body: String) -> Dictionary:
+	return parse_production_ack(body)
+
+
 static func build_request_id(prefix: String, sequence: int) -> String:
 	var safe_prefix := "godot"
 	var cleaned := prefix.strip_edges().to_lower()

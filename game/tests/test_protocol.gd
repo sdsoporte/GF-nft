@@ -15,6 +15,7 @@ func _initialize() -> void:
 	_test_production_ack(t)
 	_test_error_payload(t)
 	_test_requests(t)
+	_test_line_control_requests(t)
 	quit(t.finish("test_protocol"))
 
 
@@ -171,3 +172,71 @@ func _test_requests(t: TestSupport) -> void:
 	var generated: String = FactoryProtocol.build_request_id("godot", 3)
 	t.check(FactoryProtocol.is_valid_request_id(generated), "generated request id is valid: %s" % generated)
 	t.check(not FactoryProtocol.is_safe_identifier("cmd id", 64), "identifier with a space is refused")
+
+
+func _test_line_control_requests(t: TestSupport) -> void:
+	# Pause request payload
+	var pause_req: Dictionary = FactoryProtocol.build_line_pause_request("req-pause-1")
+	t.check(pause_req["ok"], "valid pause request is built")
+	var pause_json: Variant = JSON.parse_string(String(pause_req["value"]))
+	if t.check(typeof(pause_json) == TYPE_DICTIONARY, "pause request is a JSON object"):
+		var data: Dictionary = pause_json
+		t.equal(data.size(), 1, "pause request carries exactly requestId")
+		t.equal(String(data["requestId"]), "req-pause-1", "pause request id")
+
+	# Resume request payload
+	var resume_req: Dictionary = FactoryProtocol.build_line_resume_request("req-resume-1")
+	t.check(resume_req["ok"], "valid resume request is built")
+	var resume_json: Variant = JSON.parse_string(String(resume_req["value"]))
+	if t.check(typeof(resume_json) == TYPE_DICTIONARY, "resume request is a JSON object"):
+		var data: Dictionary = resume_json
+		t.equal(data.size(), 1, "resume request carries exactly requestId")
+		t.equal(String(data["requestId"]), "req-resume-1", "resume request id")
+
+	# Priority request payload (1, 2, 3)
+	for prio in [1, 2, 3]:
+		var prio_req: Dictionary = FactoryProtocol.build_line_priority_request("req-prio-%d" % prio, prio)
+		t.check(prio_req["ok"], "valid priority %d request is built" % prio)
+		var prio_json: Variant = JSON.parse_string(String(prio_req["value"]))
+		if t.check(typeof(prio_json) == TYPE_DICTIONARY, "priority request is a JSON object"):
+			var data: Dictionary = prio_json
+			t.equal(data.size(), 2, "priority request carries requestId and priority")
+			t.equal(String(data["requestId"]), "req-prio-%d" % prio, "priority request id")
+			t.equal(int(data["priority"]), prio, "priority value")
+
+	# Refusals: invalid priority values
+	t.check(not FactoryProtocol.build_line_priority_request("req-1", 0)["ok"], "priority 0 is refused")
+	t.check(not FactoryProtocol.build_line_priority_request("req-1", 4)["ok"], "priority 4 is refused")
+	t.check(not FactoryProtocol.build_line_priority_request("req-1", -1)["ok"], "priority -1 is refused")
+
+	# Refusals: invalid request IDs
+	t.check(not FactoryProtocol.build_line_pause_request("")["ok"], "empty request id for pause is refused")
+	t.check(not FactoryProtocol.build_line_resume_request("bad id")["ok"], "space in request id for resume is refused")
+	t.check(not FactoryProtocol.build_line_priority_request("a".repeat(65), 1)["ok"], "oversized request id is refused")
+
+	# Path builders
+	t.equal(
+		FactoryProtocol.line_pause_path("comp_metal_01_line_1"),
+		"/v1/lines/comp_metal_01_line_1/pause",
+		"line pause path is formatted"
+	)
+	t.equal(
+		FactoryProtocol.line_resume_path("comp_metal_01_line_1"),
+		"/v1/lines/comp_metal_01_line_1/resume",
+		"line resume path is formatted"
+	)
+	t.equal(
+		FactoryProtocol.line_priority_path("comp_metal_01_line_1"),
+		"/v1/lines/comp_metal_01_line_1/priority",
+		"line priority path is formatted"
+	)
+	t.equal(FactoryProtocol.line_pause_path("../unsafe"), "", "unsafe line id produces empty pause path")
+	t.equal(FactoryProtocol.line_resume_path("has space"), "", "unsafe line id produces empty resume path")
+	t.equal(FactoryProtocol.line_priority_path(""), "", "empty line id produces empty priority path")
+
+	# Acknowledgement parsing
+	var ack: Dictionary = FactoryProtocol.parse_line_control_ack('{"commandId":"cmd_ctrl_01","status":"queued"}')
+	t.check(ack["ok"], "line control ack is accepted")
+	t.equal(String(ack["ack"]["commandId"]), "cmd_ctrl_01", "ack command id")
+	t.equal(String(ack["ack"]["status"]), "queued", "ack status")
+	t.check(not FactoryProtocol.parse_line_control_ack('{"commandId":"cmd_1","status":"executed"}')["ok"], "executed ack is rejected")

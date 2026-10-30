@@ -33,6 +33,11 @@ var _inventory_list: ItemList
 var _lines_list: ItemList
 var _recipes_list: ItemList
 var _start_button: Button
+var _pause_button: Button
+var _resume_button: Button
+var _priority_1_button: Button
+var _priority_2_button: Button
+var _priority_3_button: Button
 var _action_hint: Label
 var _command_label: Label
 var _error_label: Label
@@ -49,6 +54,9 @@ var _baseline_total_batches: int = -1
 var _last_executed_command_id: String = ""
 var _last_executed_tick: int = -1
 var _waiting_for_batch_completion: bool = false
+var _last_action_kind: String = ""
+var _last_action_line_id: String = ""
+var _last_action_priority: int = -1
 
 
 func _ready() -> void:
@@ -75,6 +83,11 @@ func setup() -> void:
 	_lines_list = %LinesList
 	_recipes_list = %RecipesList
 	_start_button = %StartButton
+	_pause_button = %PauseButton
+	_resume_button = %ResumeButton
+	_priority_1_button = %Priority1Button
+	_priority_2_button = %Priority2Button
+	_priority_3_button = %Priority3Button
 	_action_hint = %ActionHint
 	_command_label = %CommandLabel
 	_error_label = %ErrorLabel
@@ -95,12 +108,18 @@ func setup() -> void:
 	_client.connection_state_changed.connect(_on_connection_state_changed)
 	_client.snapshot_received.connect(_on_snapshot_received)
 	_client.production_queued.connect(_on_production_queued)
+	_client.line_control_queued.connect(_on_line_control_queued)
 	_client.command_status_changed.connect(_on_command_status_changed)
 	_client.request_failed.connect(_on_request_failed)
 
 	_connect_button.pressed.connect(_on_connect_pressed)
 	_disconnect_button.pressed.connect(_on_disconnect_pressed)
 	_start_button.pressed.connect(_on_start_pressed)
+	_pause_button.pressed.connect(_on_pause_pressed)
+	_resume_button.pressed.connect(_on_resume_pressed)
+	_priority_1_button.pressed.connect(func() -> void: _on_priority_pressed(1))
+	_priority_2_button.pressed.connect(func() -> void: _on_priority_pressed(2))
+	_priority_3_button.pressed.connect(func() -> void: _on_priority_pressed(3))
 	_lines_list.item_selected.connect(_on_line_selected)
 	_poll_timer.wait_time = POLL_INTERVAL_SECONDS
 	_poll_timer.timeout.connect(_on_poll_timeout)
@@ -279,6 +298,12 @@ func _on_production_queued(ack: Dictionary) -> void:
 	_refresh_action_state()
 
 
+func _on_line_control_queued(ack: Dictionary) -> void:
+	_pending_command_id = String(ack.get("commandId", ""))
+	_command_label.text = "Server queued command %s; waiting for the server tick." % _pending_command_id
+	_refresh_action_state()
+
+
 func _on_command_status_changed(command: Dictionary) -> void:
 	var command_id := String(command.get("commandId", ""))
 	var status := String(command.get("status", ""))
@@ -290,12 +315,30 @@ func _on_command_status_changed(command: Dictionary) -> void:
 	if status == "executed":
 		_last_executed_command_id = command_id
 		_last_executed_tick = int(command.get("executedAtTick", -1))
-		_waiting_for_batch_completion = not _tracked_line_id.is_empty()
-		_command_label.text = "Server executed %s on tick %d; production target applied." % [command_id, _last_executed_tick]
+		match _last_action_kind:
+			"pause":
+				_command_label.text = "Server executed %s on tick %d; line %s paused." % [
+					command_id, _last_executed_tick, _last_action_line_id
+				]
+			"resume":
+				_command_label.text = "Server executed %s on tick %d; line %s resumed." % [
+					command_id, _last_executed_tick, _last_action_line_id
+				]
+			"priority":
+				_command_label.text = "Server executed %s on tick %d; line %s priority set to %d." % [
+					command_id, _last_executed_tick, _last_action_line_id, _last_action_priority
+				]
+			_:
+				_waiting_for_batch_completion = not _tracked_line_id.is_empty()
+				_command_label.text = "Server executed %s on tick %d; production target applied." % [
+					command_id, _last_executed_tick
+				]
 	elif status == "rejected":
 		_waiting_for_batch_completion = false
 		_tracked_line_id = ""
-		_command_label.text = "Server rejected %s with %s." % [command_id, String(command.get("errorCode", "an engine error"))]
+		_command_label.text = "Server rejected %s with %s." % [
+			command_id, String(command.get("errorCode", "an engine error"))
+		]
 	_refresh_action_state()
 
 
@@ -339,9 +382,113 @@ func _on_start_pressed() -> void:
 	_tracked_match_id = _snapshot.match_id
 	_baseline_total_batches = int(_snapshot.line(line_id).get("totalBatchesProduced", 0))
 	_waiting_for_batch_completion = false
+	_last_action_kind = "production"
+	_last_action_line_id = line_id
+	_last_action_priority = -1
 	_last_executed_command_id = ""
 	_last_executed_tick = -1
+	_error_label.text = ""
 	_command_label.text = "Requesting one R1 batch on %s ..." % line_id
+
+
+func _on_pause_pressed() -> void:
+	_submit_line_control("pause")
+
+
+func _on_resume_pressed() -> void:
+	_submit_line_control("resume")
+
+
+func _on_priority_pressed(priority: int) -> void:
+	_submit_line_control("priority", priority)
+
+
+func _submit_line_control(action: String, priority: int = 0) -> void:
+	if _client == null or _client.get_connection_state() != FactoryApiClient.STATE_CONNECTED:
+		_show_error("Connect to the server before controlling a line.")
+		return
+	if _snapshot == null:
+		_show_error("No server snapshot yet; wait for the first state read.")
+		return
+	var line_id := _get_selected_line_id()
+	if line_id.is_empty():
+		_show_error("No production line selected.")
+		return
+
+	_start_button.disabled = true
+	if _pause_button != null:
+		_pause_button.disabled = true
+	if _resume_button != null:
+		_resume_button.disabled = true
+	if _priority_1_button != null:
+		_priority_1_button.disabled = true
+	if _priority_2_button != null:
+		_priority_2_button.disabled = true
+	if _priority_3_button != null:
+		_priority_3_button.disabled = true
+
+	var submitted: Dictionary
+	match action:
+		"pause":
+			submitted = _client.submit_line_pause(line_id)
+		"resume":
+			submitted = _client.submit_line_resume(line_id)
+		"priority":
+			submitted = _client.submit_line_priority(line_id, priority)
+		_:
+			return
+
+	if not submitted["ok"]:
+		_refresh_action_state()
+		_show_error(String(submitted["error"]))
+		return
+
+	_last_action_kind = action
+	_last_action_line_id = line_id
+	_last_action_priority = priority
+	_last_executed_command_id = ""
+	_last_executed_tick = -1
+	_error_label.text = ""
+
+	match action:
+		"pause":
+			_command_label.text = "Requesting pause on %s ..." % line_id
+		"resume":
+			_command_label.text = "Requesting resume on %s ..." % line_id
+		"priority":
+			_command_label.text = "Requesting priority %d on %s ..." % [priority, line_id]
+
+
+func _get_selected_line_id() -> String:
+	if _snapshot == null or _snapshot.lines.is_empty():
+		return ""
+	var selected := _lines_list.get_selected_items()
+	if not selected.is_empty() and selected[0] < _snapshot.lines.size():
+		return String(_snapshot.lines[selected[0]].get("lineId", ""))
+	return String(_snapshot.lines[0].get("lineId", ""))
+
+
+func press_pause(line_id: String = "") -> void:
+	_select_line_by_id(line_id)
+	_on_pause_pressed()
+
+
+func press_resume(line_id: String = "") -> void:
+	_select_line_by_id(line_id)
+	_on_resume_pressed()
+
+
+func press_priority(priority: int, line_id: String = "") -> void:
+	_select_line_by_id(line_id)
+	_on_priority_pressed(priority)
+
+
+func _select_line_by_id(line_id: String) -> void:
+	if _snapshot != null and not line_id.is_empty():
+		for index in _snapshot.lines.size():
+			if String(_snapshot.lines[index].get("lineId", "")) == line_id:
+				_lines_list.select(index)
+				break
 
 
 func _on_line_selected(_index: int) -> void:
@@ -364,6 +511,19 @@ func _refresh_action_state() -> void:
 	_start_button.disabled = not bool(action["can_start"]) or not connected or busy
 	_action_hint.text = String(action["reason"])
 
+	var selected_line_id := _get_selected_line_id()
+	var can_control := connected and not busy and not selected_line_id.is_empty()
+	if _pause_button != null:
+		_pause_button.disabled = not can_control
+	if _resume_button != null:
+		_resume_button.disabled = not can_control
+	if _priority_1_button != null:
+		_priority_1_button.disabled = not can_control
+	if _priority_2_button != null:
+		_priority_2_button.disabled = not can_control
+	if _priority_3_button != null:
+		_priority_3_button.disabled = not can_control
+
 
 func _fill_list(list: ItemList, rows: PackedStringArray) -> void:
 	list.clear()
@@ -380,6 +540,19 @@ func _clear_snapshot_ui() -> void:
 	_waiting_for_batch_completion = false
 	_last_executed_command_id = ""
 	_last_executed_tick = -1
+	_last_action_kind = ""
+	_last_action_line_id = ""
+	_last_action_priority = -1
+	if _pause_button != null:
+		_pause_button.disabled = true
+	if _resume_button != null:
+		_resume_button.disabled = true
+	if _priority_1_button != null:
+		_priority_1_button.disabled = true
+	if _priority_2_button != null:
+		_priority_2_button.disabled = true
+	if _priority_3_button != null:
+		_priority_3_button.disabled = true
 	_match_label.text = "Match: not connected"
 	_tick_label.text = "Tick: not connected"
 	_credits_label.text = "Credits: not connected"

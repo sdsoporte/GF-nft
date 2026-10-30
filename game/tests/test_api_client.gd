@@ -30,6 +30,7 @@ func _process(_delta: float) -> bool:
 	_test_policy_gate(t)
 	_test_session_lifecycle(t)
 	_test_poll_and_production(t)
+	_test_line_controls(t)
 	_test_redirect_refusal(t)
 	_test_token_redaction(t)
 	_test_malformed_state(t)
@@ -172,6 +173,90 @@ func _test_poll_and_production(t: TestSupport) -> void:
 	t.equal(statuses.size(), 1, "command status is surfaced")
 	t.equal(String(statuses[0]["status"]), "executed", "final status is reported as executed")
 	t.check(client.poll_command("cmd with space") == false, "unsafe command ids are never requested")
+
+	_dispose(client)
+
+
+func _test_line_controls(t: TestSupport) -> void:
+	var client := _make_client()
+	var acks: Array = []
+	client.line_control_queued.connect(func(ack: Dictionary) -> void: acks.append(ack))
+
+	# Disconnected client refuses line controls
+	t.check(not client.submit_line_pause("comp_metal_01_line_1")["ok"], "disconnected client refuses pause")
+	t.check(not client.submit_line_resume("comp_metal_01_line_1")["ok"], "disconnected client refuses resume")
+	t.check(not client.submit_line_priority("comp_metal_01_line_1", 2)["ok"], "disconnected client refuses priority")
+
+	var connected: Dictionary = _connect_with_health(t, client)
+	if not connected["ok"]:
+		_dispose(client)
+		return
+	var generation: int = connected["generation"]
+
+	# While state exchange is pending, line controls refuse to overlap
+	t.check(not client.submit_line_pause("comp_metal_01_line_1")["ok"], "pause refuses to overlap state request")
+	t.check(not client.submit_line_resume("comp_metal_01_line_1")["ok"], "resume refuses to overlap state request")
+	t.check(not client.submit_line_priority("comp_metal_01_line_1", 1)["ok"], "priority refuses to overlap state request")
+
+	# Deliver initial state
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "state accepted")
+
+	# Validation rejections
+	t.check(not client.submit_line_pause("../bad")["ok"], "unsafe line id for pause is refused")
+	t.check(not client.submit_line_resume("")["ok"], "empty line id for resume is refused")
+	t.check(not client.submit_line_priority("comp_metal_01_line_1", 0)["ok"], "priority 0 is refused")
+	t.check(not client.submit_line_priority("comp_metal_01_line_1", 4)["ok"], "priority 4 is refused")
+
+	# Valid pause submission
+	var pause_sub: Dictionary = client.submit_line_pause("comp_metal_01_line_1")
+	t.check(pause_sub["ok"], "valid pause submitted: %s" % str(pause_sub.get("error", "")))
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_LINE_CONTROL, "line control exchange pending")
+	t.check(not client.submit_line_pause("comp_metal_01_line_1")["ok"], "second pause refused while busy")
+	t.check(not client.poll(), "poll refused while line control is busy")
+
+	# Deliver 202 ack
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_pause_ack_1","status":"queued"}'
+	), "pause 202 ack accepted")
+	t.equal(acks.size(), 1, "line_control_queued emitted")
+	t.equal(String(acks[0]["commandId"]), "cmd_pause_ack_1", "ack command id matches")
+
+	# Valid resume submission
+	var resume_sub: Dictionary = client.submit_line_resume("comp_metal_01_line_1")
+	t.check(resume_sub["ok"], "valid resume submitted: %s" % str(resume_sub.get("error", "")))
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_LINE_CONTROL, "resume exchange pending")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_resume_ack_1","status":"queued"}'
+	), "resume 202 ack accepted")
+	t.equal(acks.size(), 2, "second line_control_queued emitted")
+
+	# Valid priority submission
+	var prio_sub: Dictionary = client.submit_line_priority("comp_metal_01_line_1", 3)
+	t.check(prio_sub["ok"], "valid priority submitted: %s" % str(prio_sub.get("error", "")))
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_LINE_CONTROL, "priority exchange pending")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_prio_ack_1","status":"queued"}'
+	), "priority 202 ack accepted")
+	t.equal(acks.size(), 3, "third line_control_queued emitted")
+
+	# Line control error handling (e.g. 403 Forbidden)
+	var err_sub: Dictionary = client.submit_line_pause("comp_metal_01_line_1")
+	t.check(err_sub["ok"], "pause for error test submitted")
+	var error_received: Array = []
+	client.request_failed.connect(func(msg: String, fatal: bool) -> void: error_received.append({"msg": msg, "fatal": fatal}))
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_LINE_CONTROL, HTTPRequest.RESULT_SUCCESS, 403,
+		'{"error":{"code":"FORBIDDEN","message":"Line not owned."}}'
+	), "403 error delivered")
+	t.equal(error_received.size(), 1, "request_failed emitted for 403")
+	t.check(not error_received[0]["fatal"], "403 is non-fatal")
+	t.contains(error_received[0]["msg"], "FORBIDDEN", "error message contains code")
+	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "session stays connected after non-fatal 403")
 
 	_dispose(client)
 
