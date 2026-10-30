@@ -21,9 +21,24 @@ export function deriveNpcTickSeed(baseSeed: number, tick: number): number {
   return (baseSeed ^ Math.imul(tick + 1, 0x9e3779b1)) >>> 0;
 }
 
+/**
+ * Issue #58 / S11: the one approved target-buffer exception.
+ *
+ * `comp_metal_02` keeps five `IRON_INGOT` — one R1 output batch — so the
+ * sell-first loop (S2) can end with a real NPC purchase of the player's R1
+ * output. It is cloned from the unchanged retention-derived default, so every
+ * other buffer, the starting stock, the buy algorithm, the margins, the fees and
+ * the credit rules stay exactly as Issue #13 defined them, and neither shared
+ * default object is mutated.
+ */
+export const METALLURGY_INGOT_TARGET_BUFFER = 5;
+
 export const DEFAULT_NPC_CONFIG_CLASS_A: NpcCompanyConfig = Object.freeze({
   companyId: 'comp_metal_02',
-  targetBuffer: Object.freeze(computeTargetBufferFromInitialStock(DEFAULT_STARTING_STOCK)),
+  targetBuffer: Object.freeze({
+    ...computeTargetBufferFromInitialStock(DEFAULT_STARTING_STOCK),
+    IRON_INGOT: METALLURGY_INGOT_TARGET_BUFFER,
+  }),
   preferredRecipes: Object.freeze<RecipeId[]>(['R1', 'R2', 'R3']),
   priceMarginPercent: DEFAULT_NPC_SELL_MARGIN_PERCENT,
   maxBuyPriceMarginPercent: DEFAULT_NPC_MAX_BUY_PRICE_MARGIN_PERCENT,

@@ -82,7 +82,14 @@ export type OfferBatchSizes = Partial<Record<ItemId, number>>;
  */
 export interface NpcCompanyConfig {
   readonly companyId: string;
-  /** Buffer quantity of each item reserved for internal production/survival (50% of initial stock) */
+  /**
+   * Buffer quantity of each item reserved for internal production/survival
+   * (50% of initial stock), with one approved exception: Issue #58 / S11 sets
+   * only `comp_metal_02`'s `IRON_INGOT` buffer to five, one R1 output batch, so
+   * the sell-first loop can end with a real NPC purchase of the player's R1
+   * output. Retention, starting stock, prices, fees and the buying algorithm are
+   * unchanged, and this type stays a plain per-company configuration.
+   */
   readonly targetBuffer: InventoryTargetBuffer;
   /** Primary specialized recipes this NPC prioritizes */
   readonly preferredRecipes: readonly RecipeId[];
