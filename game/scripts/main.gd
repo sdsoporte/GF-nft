@@ -20,7 +20,6 @@ cancel and dispatch waits for one explicit confirmation that shows the escrow, c
 default consequences the server reported for that contract."""
 
 const SMOKE_FLAG := "--smoke"
-const SELLING_SMOKE_FLAG := "--smoke-selling"
 const POLL_INTERVAL_SECONDS := 1.0
 ## Bounded follow-up reads while a confirmed financial command waits for the engine.
 const SELLING_POLL_ATTEMPTS := 6
@@ -220,11 +219,6 @@ func setup() -> void:
 		_smoke.name = "FactorySmoke"
 		add_child(_smoke)
 		_smoke.start(self)
-	if OS.get_cmdline_user_args().has(SELLING_SMOKE_FLAG):
-		var selling_smoke := FactorySellingSmoke.new()
-		selling_smoke.name = "FactorySellingSmoke"
-		add_child(selling_smoke)
-		selling_smoke.start(self)
 
 
 func get_client() -> FactoryApiClient:
