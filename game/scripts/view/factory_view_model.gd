@@ -96,15 +96,15 @@ static func _line_row(line: Dictionary) -> String:
 	var status := String(line.get("status", "UNKNOWN"))
 	var priority := int(line.get("priority", 0))
 	var active: Variant = line.get("activeBatch", {})
-	if status == "RUNNING" and typeof(active) == TYPE_DICTIONARY and not (active as Dictionary).is_empty():
+	if typeof(active) == TYPE_DICTIONARY and not (active as Dictionary).is_empty():
 		var batch: Dictionary = active
 		var recipe_id := String(batch.get("recipeId", line.get("currentRecipeId", "")))
 		var progress := int(batch.get("progressTicks", 0))
 		var duration := int(batch.get("totalDurationTicks", 0))
 		var completed := int(batch.get("completedBatches", 0))
 		var target := int(batch.get("targetBatches", 0))
-		return "%s: RUNNING %s %d/%d ticks (batch %d/%d)" % [
-			line_id, recipe_id, progress, duration, completed + 1, target
+		return "%s: %s %s %d/%d ticks (batch %d/%d)" % [
+			line_id, status, recipe_id, progress, duration, completed + 1, target
 		]
 	return "%s: %s (priority %d)" % [line_id, status, priority]
 
@@ -165,11 +165,22 @@ static func action_state(snapshot: FactorySnapshot) -> Dictionary:
 	if default_line.is_empty():
 		default_line = String(snapshot.lines[0].get("lineId", ""))
 	state["line_id"] = default_line
+	state["energy_guide"] = energy_guide_text(snapshot, default_line)
 
 	var notes := PackedStringArray()
 	var energy_cost := int(recipe.get("energyCost", 0))
+	var duration := int(recipe.get("durationTicks", 0))
+	var per_tick := int(energy_cost / duration) if duration > 0 else energy_cost
+	var target_line := snapshot.line(default_line)
+	var active_batch: Variant = target_line.get("activeBatch", {})
+	if typeof(active_batch) == TYPE_DICTIONARY and not (active_batch as Dictionary).is_empty():
+		per_tick = int((active_batch as Dictionary).get("energyPerTick", per_tick))
+
 	if snapshot.energy < energy_cost:
-		notes.append("energy %s is below the R1 cost of %s" % [format_integer(snapshot.energy), format_integer(energy_cost)])
+		notes.append(
+			"energy %s is below the R1 cost of %s (demands %s energy/tick per productive tick; uninterrupted progress is not guaranteed)"
+			% [format_integer(snapshot.energy), format_integer(energy_cost), format_integer(per_tick)]
+		)
 	var inputs: Variant = recipe.get("inputs", [])
 	if typeof(inputs) == TYPE_ARRAY:
 		for entry in (inputs as Array):
@@ -187,6 +198,29 @@ static func action_state(snapshot: FactorySnapshot) -> Dictionary:
 	if not notes.is_empty():
 		state["reason"] = "The server may reject this batch: %s." % ", ".join(notes)
 	return state
+
+
+## Returns an advisory breakdown of energy demand per productive tick vs total batch cost.
+## Shows activeBatch.energyPerTick when present, or recipe defaults, without promising
+## uninterrupted progress.
+static func energy_guide_text(snapshot: FactorySnapshot, line_id: String = "") -> String:
+	if snapshot == null:
+		return ""
+	var recipe: Dictionary = snapshot.recipe(FactoryProtocol.PRODUCTION_RECIPE_ID)
+	var total_cost := int(recipe.get("energyCost", 0))
+	var duration := int(recipe.get("durationTicks", 0))
+	var per_tick := int(total_cost / duration) if duration > 0 else total_cost
+	if not line_id.is_empty():
+		var line := snapshot.line(line_id)
+		var active: Variant = line.get("activeBatch", {})
+		if typeof(active) == TYPE_DICTIONARY and not (active as Dictionary).is_empty():
+			per_tick = int((active as Dictionary).get("energyPerTick", per_tick))
+			var active_recipe_id := String((active as Dictionary).get("recipeId", ""))
+			if not active_recipe_id.is_empty():
+				total_cost = int(snapshot.recipe(active_recipe_id).get("energyCost", total_cost))
+	return "Energy demand: %s per productive tick (total batch cost %s); uninterrupted progress is not guaranteed." % [
+		format_integer(per_tick), format_integer(total_cost)
+	]
 
 
 ## Groups digits without changing the value the server sent.

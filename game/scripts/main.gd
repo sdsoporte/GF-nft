@@ -43,6 +43,12 @@ var _snapshot: FactorySnapshot
 var _pending_command_id: String = ""
 var _smoke: FactorySmoke
 var _initialized: bool = false
+var _tracked_line_id: String = ""
+var _tracked_match_id: String = ""
+var _baseline_total_batches: int = -1
+var _last_executed_command_id: String = ""
+var _last_executed_tick: int = -1
+var _waiting_for_batch_completion: bool = false
 
 
 func _ready() -> void:
@@ -170,6 +176,24 @@ func apply_snapshot(snapshot: FactorySnapshot) -> void:
 	if not previous_selection.is_empty() and previous_selection[0] < _lines_list.item_count:
 		_lines_list.select(previous_selection[0])
 	_error_label.text = ""
+
+	if _waiting_for_batch_completion and not _tracked_line_id.is_empty():
+		if snapshot.match_id != _tracked_match_id:
+			_waiting_for_batch_completion = false
+			_tracked_line_id = ""
+			_tracked_match_id = ""
+			_baseline_total_batches = -1
+		else:
+			var line: Dictionary = snapshot.line(_tracked_line_id)
+			if not line.is_empty():
+				var current_batches := int(line.get("totalBatchesProduced", 0))
+				if current_batches > _baseline_total_batches:
+					_waiting_for_batch_completion = false
+					_command_label.text = "Server executed %s on tick %d; line %s completed batch (total produced: %d)." % [
+						_last_executed_command_id, _last_executed_tick, _tracked_line_id, current_batches
+					]
+					_baseline_total_batches = current_batches
+
 	_refresh_action_state()
 
 
@@ -264,8 +288,13 @@ func _on_command_status_changed(command: Dictionary) -> void:
 	if _pending_command_id == command_id:
 		_pending_command_id = ""
 	if status == "executed":
-		_command_label.text = "Server executed %s on tick %d." % [command_id, int(command.get("executedAtTick", -1))]
+		_last_executed_command_id = command_id
+		_last_executed_tick = int(command.get("executedAtTick", -1))
+		_waiting_for_batch_completion = not _tracked_line_id.is_empty()
+		_command_label.text = "Server executed %s on tick %d; production target applied." % [command_id, _last_executed_tick]
 	elif status == "rejected":
+		_waiting_for_batch_completion = false
+		_tracked_line_id = ""
 		_command_label.text = "Server rejected %s with %s." % [command_id, String(command.get("errorCode", "an engine error"))]
 	_refresh_action_state()
 
@@ -306,6 +335,12 @@ func _on_start_pressed() -> void:
 		_start_button.disabled = false
 		_show_error(String(submitted["error"]))
 		return
+	_tracked_line_id = line_id
+	_tracked_match_id = _snapshot.match_id
+	_baseline_total_batches = int(_snapshot.line(line_id).get("totalBatchesProduced", 0))
+	_waiting_for_batch_completion = false
+	_last_executed_command_id = ""
+	_last_executed_tick = -1
 	_command_label.text = "Requesting one R1 batch on %s ..." % line_id
 
 
@@ -339,6 +374,12 @@ func _fill_list(list: ItemList, rows: PackedStringArray) -> void:
 func _clear_snapshot_ui() -> void:
 	_snapshot = null
 	_pending_command_id = ""
+	_tracked_line_id = ""
+	_tracked_match_id = ""
+	_baseline_total_batches = -1
+	_waiting_for_batch_completion = false
+	_last_executed_command_id = ""
+	_last_executed_tick = -1
 	_match_label.text = "Match: not connected"
 	_tick_label.text = "Tick: not connected"
 	_credits_label.text = "Credits: not connected"

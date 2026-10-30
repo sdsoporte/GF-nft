@@ -18,6 +18,8 @@ func _initialize() -> void:
 	_test_recipes(t, snapshot)
 	_test_action_state(t, snapshot)
 	_test_affordability(t)
+	_test_paused_and_no_energy_progress(t)
+	_test_energy_guide(t, snapshot)
 	quit(t.finish("test_view_model"))
 
 
@@ -94,3 +96,50 @@ func _test_affordability(t: TestSupport) -> void:
 	var reason := String(action["reason"])
 	t.contains(reason, "energy", "advisory mentions insufficient energy")
 	t.contains(reason, "RAW_ORE", "advisory mentions insufficient input stock")
+
+
+func _test_paused_and_no_energy_progress(t: TestSupport) -> void:
+	var parsed: Dictionary = FactoryProtocol.parse_state(t.fixture("state_ok.json"))
+	var snapshot: FactorySnapshot = parsed["snapshot"]
+
+	# Line in PAUSED with activeBatch must show progress ticks, duration, and batch count
+	snapshot.lines[0]["status"] = "PAUSED"
+	var rows: PackedStringArray = FactoryViewModel.line_rows(snapshot)
+	t.equal(
+		rows[0],
+		"comp_metal_01_line_1: PAUSED R1 4/10 ticks (batch 1/1)",
+		"paused line with active batch preserves visible progress"
+	)
+
+	# Line in NO_ENERGY with activeBatch must show progress ticks, duration, and batch count
+	snapshot.lines[0]["status"] = "NO_ENERGY"
+	rows = FactoryViewModel.line_rows(snapshot)
+	t.equal(
+		rows[0],
+		"comp_metal_01_line_1: NO_ENERGY R1 4/10 ticks (batch 1/1)",
+		"starved line with active batch preserves visible progress"
+	)
+
+	# Line in PAUSED without activeBatch shows status and priority
+	snapshot.lines[0]["status"] = "PAUSED"
+	snapshot.lines[0]["activeBatch"] = null
+	rows = FactoryViewModel.line_rows(snapshot)
+	t.equal(
+		rows[0],
+		"comp_metal_01_line_1: PAUSED (priority 1)",
+		"paused line without active batch shows status and priority"
+	)
+
+
+func _test_energy_guide(t: TestSupport, snapshot: FactorySnapshot) -> void:
+	# Guide for line with active batch (comp_metal_01_line_1 has energyPerTick 2)
+	var active_guide: String = FactoryViewModel.energy_guide_text(snapshot, "comp_metal_01_line_1")
+	t.contains(active_guide, "2", "guide shows energy demand per productive tick")
+	t.contains(active_guide, "20", "guide shows total recipe energy cost")
+	t.contains(active_guide.to_lower(), "uninterrupted", "guide disclaims uninterrupted progress")
+
+	# Guide for idle line (comp_metal_01_line_2 uses recipe default duration/cost)
+	var idle_guide: String = FactoryViewModel.energy_guide_text(snapshot, "comp_metal_01_line_2")
+	t.contains(idle_guide, "2", "idle line uses recipe rate for per-tick demand")
+	t.contains(idle_guide, "20", "idle line shows total recipe cost")
+	t.contains(idle_guide.to_lower(), "uninterrupted", "idle line disclaims uninterrupted progress")
