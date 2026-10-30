@@ -21,9 +21,11 @@ import { NpcController } from './engine/npc/NpcController.ts';
 import type {
   CommandExecutionResult,
   CompanyState,
+  DistributiveOmit,
   EnqueueCommandInput,
   GameCommand,
   IndustrialClass,
+  LinePriority,
   RecipeId,
 } from './domain/types.ts';
 import {
@@ -88,13 +90,50 @@ export interface ProductionRequestInput {
   readonly recipeId: string;
 }
 
-/** Outcome of a production request, mapped to HTTP by the transport layer. */
-export type ProductionDecision =
+/**
+ * Durable admission outcome shared by every player write route.
+ *
+ * The transport maps each kind to one entry of the frozen error table, so the
+ * line controls of issue #57 answer with exactly the semantics `/v1/production`
+ * already has.
+ */
+export type AdmissionDecision =
   | { readonly kind: 'queued'; readonly commandId: string }
-  | { readonly kind: 'unsupported_recipe' }
   | { readonly kind: 'line_not_owned' }
   | { readonly kind: 'request_id_reused' }
   | { readonly kind: 'command_limit' };
+
+/** Outcome of a production request, mapped to HTTP by the transport layer. */
+export type ProductionDecision = AdmissionDecision | { readonly kind: 'unsupported_recipe' };
+
+/** The player-facing line controls (issue #57). */
+export type LineControlAction = 'pause' | 'resume' | 'priority';
+
+/**
+ * Validated shape of `POST /v1/lines/{lineId}/{pause|resume|priority}`.
+ *
+ * The company, the tick and the sequence number are server-owned, exactly as on
+ * the production route: they cannot appear here. A discriminated union keeps
+ * the priority action from being admitted without its value.
+ */
+export type LineControlRequestInput =
+  | {
+      readonly requestId: string;
+      readonly lineId: string;
+      readonly action: 'pause' | 'resume';
+    }
+  | {
+      readonly requestId: string;
+      readonly lineId: string;
+      readonly action: 'priority';
+      readonly priority: LinePriority;
+    };
+
+/** A command body minus every field the server owns. */
+type PlayerCommandBody = DistributiveOmit<
+  EnqueueCommandInput,
+  'commandId' | 'companyId' | 'scheduledTick' | 'idempotencyKey'
+>;
 
 export interface FactoryMatchOptions {
   readonly seed?: number;
@@ -447,17 +486,80 @@ export class FactoryMatch {
     if (input.recipeId !== SUPPORTED_RECIPE_ID) {
       return { kind: 'unsupported_recipe' };
     }
-
-    const company = this.getServerCompany();
-    const ownsLine = company.lines.some((line) => line.lineId === input.lineId);
-    if (!ownsLine) {
+    if (!this.ownsLine(input.lineId)) {
       return { kind: 'line_not_owned' };
     }
 
-    const fingerprint = `${input.lineId}\n${input.recipeId}`;
+    return this.admitPlayerCommand({
+      requestId: input.requestId,
+      // Unchanged from the first release: persisted ledger rows hold this exact
+      // fingerprint, so a retry that spans an upgrade must still match.
+      fingerprint: `${input.lineId}\n${input.recipeId}`,
+      body: {
+        type: 'SET_PRODUCTION_TARGET',
+        lineId: input.lineId,
+        recipeId: SUPPORTED_RECIPE_ID,
+        targetBatches: 1,
+      },
+    });
+  }
+
+  /**
+   * Admit one pause, resume or priority command for the server-selected
+   * company (issue #57).
+   *
+   * These are ordinary queued commands, not a second dispatch path: they reuse
+   * the `/v1/production` ledger, the same acknowledgement and the same engine
+   * queue, and the server picks the tick. Nothing here mutates simulation state,
+   * so a settled request never costs a request ID and an exact retry returns
+   * the acknowledgement it already had. Whether a control is legal right now
+   * (for example retargeting a line that still holds an active batch) stays the
+   * engine's decision at execution time.
+   */
+  public requestLineControl(input: LineControlRequestInput): AdmissionDecision {
+    if (!this.ownsLine(input.lineId)) {
+      return { kind: 'line_not_owned' };
+    }
+
+    if (input.action === 'priority') {
+      return this.admitPlayerCommand({
+        requestId: input.requestId,
+        fingerprint: `${input.lineId}\npriority\n${input.priority}`,
+        body: { type: 'SET_LINE_PRIORITY', lineId: input.lineId, priority: input.priority },
+      });
+    }
+    return this.admitPlayerCommand({
+      requestId: input.requestId,
+      fingerprint: `${input.lineId}\n${input.action}`,
+      body: input.action === 'pause'
+        ? { type: 'PAUSE_PRODUCTION_LINE', lineId: input.lineId }
+        : { type: 'RESUME_PRODUCTION_LINE', lineId: input.lineId },
+    });
+  }
+
+  /** True when the server-selected company owns the line. */
+  private ownsLine(lineId: string): boolean {
+    return this.getServerCompany().lines.some((line) => line.lineId === lineId);
+  }
+
+  /**
+   * The single durable admission path a player write goes through.
+   *
+   * One admission is one ledger entry plus one queued command. Durably the
+   * order is the opposite of the client's: the queue row, the permanent dedupe
+   * key and the acknowledgement commit in one transaction, and only then does
+   * the engine observe the command. `fingerprint` is the whole validated
+   * payload, so an exact retry is idempotent while any other reuse of the same
+   * request ID is refused without touching the original command.
+   */
+  private admitPlayerCommand(input: {
+    readonly requestId: string;
+    readonly fingerprint: string;
+    readonly body: PlayerCommandBody;
+  }): AdmissionDecision {
     const acknowledged = this.requestLedger.get(input.requestId);
     if (acknowledged) {
-      if (acknowledged.fingerprint === fingerprint) {
+      if (acknowledged.fingerprint === input.fingerprint) {
         return { kind: 'queued', commandId: acknowledged.commandId };
       }
       return { kind: 'request_id_reused' };
@@ -468,15 +570,12 @@ export class FactoryMatch {
     }
 
     const commandId = `cmd_${randomBytes(12).toString('hex')}`;
-    const command = {
+    const command: EnqueueCommandInput = {
+      ...input.body,
       commandId,
       companyId: SERVER_COMPANY_ID,
       scheduledTick: this.engine.getCurrentTick() + 1,
       idempotencyKey: `http:${this.matchId}:${input.requestId}`,
-      type: 'SET_PRODUCTION_TARGET' as const,
-      lineId: input.lineId,
-      recipeId: SUPPORTED_RECIPE_ID,
-      targetBatches: 1,
     };
 
     if (this.store) {
@@ -505,7 +604,7 @@ export class FactoryMatch {
           acknowledgement: {
             matchId: this.matchId,
             requestId: input.requestId,
-            fingerprint,
+            fingerprint: input.fingerprint,
             commandId,
             capacity: MAX_ACKNOWLEDGED_REQUESTS,
           },
@@ -525,7 +624,7 @@ export class FactoryMatch {
       return { kind: 'request_id_reused' };
     }
 
-    this.requestLedger.set(input.requestId, { fingerprint, commandId });
+    this.requestLedger.set(input.requestId, { fingerprint: input.fingerprint, commandId });
     this.commandRecords.set(commandId, { commandId, status: 'queued' });
     return { kind: 'queued', commandId };
   }

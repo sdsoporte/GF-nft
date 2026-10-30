@@ -25,6 +25,8 @@ import {
   DEFAULT_TICK_INTERVAL_MS,
   FactoryMatch,
   PROTOCOL_VERSION,
+  type LineControlAction,
+  type LineControlRequestInput,
   type ProductionRequestInput,
 } from './match.ts';
 import type { MatchStore } from './persistence/matchStore.ts';
@@ -81,10 +83,19 @@ interface HandlerContext {
   readonly owner: McpRuntime | null;
 }
 
-type RouteName = 'health' | 'state' | 'production' | 'command' | 'mcp';
+/** Issue #57: one additive line control, addressed by line and action. */
+interface LineControlRoute {
+  readonly lineId: string;
+  readonly action: LineControlAction;
+}
 
 type ResolvedRoute =
-  | { readonly kind: 'route'; readonly name: RouteName; readonly commandId?: string }
+  | {
+      readonly kind: 'route';
+      readonly name: 'health' | 'state' | 'production' | 'command' | 'mcp';
+      readonly commandId?: string;
+    }
+  | { readonly kind: 'route'; readonly name: 'line_control'; readonly lineControl: LineControlRoute }
   | { readonly kind: 'method_not_allowed' }
   | { readonly kind: 'not_found' };
 
@@ -104,6 +115,24 @@ function resolveRoute(method: string, pathname: string): ResolvedRoute {
   }
   if (path === '/v1/production') {
     return method === 'POST' ? { kind: 'route', name: 'production' } : { kind: 'method_not_allowed' };
+  }
+
+  // Issue #57: additive player line controls, POST-only like /v1/production.
+  const lineControlMatch = /^\/v1\/lines\/([^/]+)\/(pause|resume|priority)$/.exec(path);
+  if (lineControlMatch) {
+    if (method !== 'POST') return { kind: 'method_not_allowed' };
+    try {
+      return {
+        kind: 'route',
+        name: 'line_control',
+        lineControl: {
+          lineId: decodeURIComponent(lineControlMatch[1]),
+          action: lineControlMatch[2] as LineControlAction,
+        },
+      };
+    } catch {
+      return { kind: 'not_found' };
+    }
   }
 
   if (path === '/mcp') {
@@ -281,6 +310,152 @@ async function handleProduction(
     case 'unsupported_recipe':
       sendError(res, invalidRequest(INVALID_REQUEST_MESSAGES.unsupportedRecipe));
       return;
+    case 'line_not_owned':
+      sendError(res, forbidden(FORBIDDEN_MESSAGES.lineNotOwned));
+      return;
+    case 'request_id_reused':
+      sendError(res, ERRORS.requestIdReused);
+      return;
+    case 'command_limit':
+      sendError(res, ERRORS.commandLimit);
+      return;
+    default:
+      sendJson(res, 202, { commandId: decision.commandId, status: 'queued' });
+  }
+}
+
+const LINE_CONTROL_MESSAGES = {
+  requestIdOnly: 'The request body must contain exactly requestId.',
+  requestIdAndPriority: 'The request body must contain exactly requestId and priority.',
+  priorityRange: 'The priority must be an integer between 1 and 3.',
+  unsupportedMediaType: 'The line control request must be application/json.',
+} as const;
+
+/**
+ * Same 415 entry as production (code and status are shared), with a message
+ * that names this route family instead of the production route.
+ */
+const LINE_CONTROL_UNSUPPORTED_MEDIA_TYPE: ErrorDefinition = {
+  status: 415,
+  body: {
+    error: {
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: LINE_CONTROL_MESSAGES.unsupportedMediaType,
+    },
+  },
+};
+
+function isLinePriority(value: unknown): value is 1 | 2 | 3 {
+  return value === 1 || value === 2 || value === 3;
+}
+
+type LineControlPayload =
+  | { readonly ok: true; readonly action: 'pause' | 'resume'; readonly requestId: string }
+  | {
+      readonly ok: true;
+      readonly action: 'priority';
+      readonly requestId: string;
+      readonly priority: 1 | 2 | 3;
+    }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * Enforce the strict line control shapes: `{requestId}` for pause and resume,
+ * `{requestId, priority}` for priority.
+ *
+ * Company, tick, sequence and batch counts are rejected by construction: they
+ * are simply not part of any accepted shape, exactly as on `/v1/production`.
+ */
+function validateLineControlBody(
+  action: LineControlAction,
+  value: unknown,
+): LineControlPayload {
+  if (!isPlainObject(value)) {
+    return {
+      ok: false,
+      message: action === 'priority'
+        ? LINE_CONTROL_MESSAGES.requestIdAndPriority
+        : LINE_CONTROL_MESSAGES.requestIdOnly,
+    };
+  }
+
+  const keys = Object.keys(value);
+  if (action === 'priority') {
+    if (keys.length !== 2 || !keys.includes('requestId') || !keys.includes('priority')) {
+      return { ok: false, message: LINE_CONTROL_MESSAGES.requestIdAndPriority };
+    }
+    const { requestId, priority } = value;
+    if (typeof requestId !== 'string') {
+      return { ok: false, message: LINE_CONTROL_MESSAGES.requestIdAndPriority };
+    }
+    if (!REQUEST_ID_PATTERN.test(requestId)) {
+      return { ok: false, message: INVALID_REQUEST_MESSAGES.requestId };
+    }
+    if (!isLinePriority(priority)) {
+      return { ok: false, message: LINE_CONTROL_MESSAGES.priorityRange };
+    }
+    return { ok: true, action, requestId, priority };
+  }
+
+  if (keys.length !== 1 || keys[0] !== 'requestId' || typeof value.requestId !== 'string') {
+    return { ok: false, message: LINE_CONTROL_MESSAGES.requestIdOnly };
+  }
+  if (!REQUEST_ID_PATTERN.test(value.requestId)) {
+    return { ok: false, message: INVALID_REQUEST_MESSAGES.requestId };
+  }
+  return { ok: true, action, requestId: value.requestId };
+}
+
+async function handleLineControl(
+  req: IncomingMessage,
+  res: ServerResponse,
+  route: LineControlRoute,
+  context: HandlerContext,
+): Promise<void> {
+  const contentType = req.headers['content-type'];
+  const mediaType =
+    typeof contentType === 'string' ? contentType.split(';')[0].trim().toLowerCase() : '';
+  if (mediaType !== 'application/json') {
+    await discardBody(req);
+    sendError(res, LINE_CONTROL_UNSUPPORTED_MEDIA_TYPE);
+    return;
+  }
+
+  const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
+  if (!body.ok) {
+    if (body.reason === 'too_large') {
+      sendError(res, ERRORS.requestTooLarge);
+      return;
+    }
+    sendError(res, invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson));
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body.text);
+  } catch {
+    sendError(res, invalidRequest(INVALID_REQUEST_MESSAGES.malformedJson));
+    return;
+  }
+
+  const validated = validateLineControlBody(route.action, parsed);
+  if (!validated.ok) {
+    sendError(res, invalidRequest(validated.message));
+    return;
+  }
+
+  const request: LineControlRequestInput = validated.action === 'priority'
+    ? {
+        requestId: validated.requestId,
+        lineId: route.lineId,
+        action: 'priority',
+        priority: validated.priority,
+      }
+    : { requestId: validated.requestId, lineId: route.lineId, action: validated.action };
+
+  const decision = context.match.requestLineControl(request);
+  switch (decision.kind) {
     case 'line_not_owned':
       sendError(res, forbidden(FORBIDDEN_MESSAGES.lineNotOwned));
       return;
@@ -482,6 +657,10 @@ async function handleRequest(
   }
   if (route.name === 'production') {
     await handleProduction(req, res, context);
+    return;
+  }
+  if (route.name === 'line_control') {
+    await handleLineControl(req, res, route.lineControl, context);
     return;
   }
 
