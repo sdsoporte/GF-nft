@@ -21,6 +21,7 @@ func _process(_delta: float) -> bool:
 	_test_blocked_action_without_session(t)
 	_test_environment_prefill(t)
 	_test_command_poll_recovery(t)
+	_test_production_lifecycle_distinction(t)
 	quit(t.finish("test_main_scene"))
 	return true
 
@@ -250,3 +251,127 @@ func _check_command_failure(t: TestSupport, url: String, status: int) -> void:
 	main.disconnect_from_server()
 	get_root().remove_child(main)
 	main.free()
+
+
+func _test_production_lifecycle_distinction(t: TestSupport) -> void:
+	var server := TCPServer.new()
+	if not t.equal(server.listen(0, "127.0.0.1"), OK, "lifecycle test owns a loopback listener"):
+		return
+	var url := "http://127.0.0.1:%d" % server.get_local_port()
+	var main := _instantiate()
+	_node(main, "UrlEdit").text = url
+	_node(main, "TokenEdit").text = ENV_TOKEN
+	_node(main, "ConnectButton").pressed.emit()
+	var client: FactoryApiClient = main.get_client()
+	var generation := client.get_generation()
+
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_HEALTH, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("health_ok.json")
+	), "lifecycle: health accepted")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "lifecycle: initial snapshot accepted")
+
+	# Select idle line 2 (index 1) which has totalBatchesProduced = 0
+	_node(main, "LinesList").select(1)
+	_node(main, "StartButton").pressed.emit()
+
+	# 1. Enqueued stage
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_PRODUCTION, HTTPRequest.RESULT_SUCCESS, 202, t.fixture("ack_queued.json")
+	), "lifecycle: queued ack accepted")
+	var queued_text: String = main.ui_command_text()
+	t.contains(queued_text, "queued", "lifecycle: queued stage reports command queued")
+	t.not_contains(queued_text, "completed", "lifecycle: queued stage does not claim completion")
+
+	# Poll command status
+	_node(main, "PollTimer").timeout.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_COMMAND, "lifecycle: command poll started")
+
+	# 2. Target applied stage (executed on server tick, batch NOT completed yet)
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, HTTPRequest.RESULT_SUCCESS, 200,
+		'{"commandId":"cmd_fixture_queued","status":"executed","executedAtTick":43}'
+	), "lifecycle: executed status delivered")
+	var executed_text: String = main.ui_command_text()
+	t.contains(executed_text, "executed", "lifecycle: target applied stage reports execution")
+	t.contains(executed_text.to_lower(), "target applied", "lifecycle: target applied stage reports target applied")
+	t.not_contains(executed_text, "completed batch", "lifecycle: execution before completion never claims batch completed")
+
+	# 3. Intermediate snapshots with elapsed time / progress but totalBatchesProduced = 0
+	_node(main, "PollTimer").timeout.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_STATE, "lifecycle: regular state poll resumes")
+	var mid_batch: Dictionary = JSON.parse_string(t.fixture("state_ok.json"))
+	mid_batch["tick"] = 46
+	# Line 2 is now running with 3/10 ticks progress, totalBatchesProduced is still 0
+	mid_batch["company"]["lines"][1]["status"] = "RUNNING"
+	mid_batch["company"]["lines"][1]["currentRecipeId"] = "R1"
+	mid_batch["company"]["lines"][1]["totalBatchesProduced"] = 0
+	mid_batch["company"]["lines"][1]["activeBatch"] = {
+		"recipeId": "R1", "targetBatches": 1, "completedBatches": 0,
+		"progressTicks": 3, "totalDurationTicks": 10, "energyPerTick": 2, "energyRemainder": 0
+	}
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(mid_batch)
+	), "lifecycle: mid-batch snapshot delivered")
+	t.not_contains(main.ui_command_text(), "completed batch", "lifecycle: elapsed time without batch increment does not claim completion")
+
+	# 4. Line enters NO_ENERGY or PAUSED with active batch: preserves progress, does not claim completion
+	_node(main, "PollTimer").timeout.emit()
+	var paused_batch: Dictionary = JSON.parse_string(JSON.stringify(mid_batch))
+	paused_batch["tick"] = 48
+	paused_batch["company"]["lines"][1]["status"] = "NO_ENERGY"
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(paused_batch)
+	), "lifecycle: starved snapshot delivered")
+	t.contains(main.ui_line_rows()[1], "NO_ENERGY R1 3/10 ticks", "lifecycle: NO_ENERGY preserves visible progress")
+	t.not_contains(main.ui_command_text(), "completed batch", "lifecycle: NO_ENERGY does not claim completion")
+
+	# 5. Extraneous inventory change without batch increment does not claim completion
+	_node(main, "PollTimer").timeout.emit()
+	var inventory_change: Dictionary = JSON.parse_string(JSON.stringify(paused_batch))
+	inventory_change["tick"] = 50
+	inventory_change["company"]["inventory"]["IRON_INGOT"]["available"] = 999
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(inventory_change)
+	), "lifecycle: inventory change snapshot delivered")
+	t.not_contains(main.ui_command_text(), "completed batch", "lifecycle: extraneous inventory change does not claim completion")
+
+	# 6. Batch completed: server snapshot reports totalBatchesProduced increment on chosen line
+	_node(main, "PollTimer").timeout.emit()
+	var completed_snapshot: Dictionary = JSON.parse_string(JSON.stringify(mid_batch))
+	completed_snapshot["tick"] = 53
+	completed_snapshot["company"]["lines"][1]["status"] = "IDLE"
+	completed_snapshot["company"]["lines"][1]["activeBatch"] = null
+	completed_snapshot["company"]["lines"][1]["totalBatchesProduced"] = 1
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, JSON.stringify(completed_snapshot)
+	), "lifecycle: completed snapshot delivered")
+	var completed_text: String = main.ui_command_text()
+	t.contains(completed_text, "executed", "lifecycle: completion retains executed reference")
+	t.contains(completed_text, "completed batch", "lifecycle: completion clearly distinguishes batch completion")
+	t.contains(completed_text, "comp_metal_01_line_2", "lifecycle: completion names the targeted line")
+	t.contains(completed_text, "total produced: 1", "lifecycle: completion reports total produced count")
+
+	# 7. Rejection test: command rejected does not claim target applied or completion
+	_node(main, "LinesList").select(1)
+	_node(main, "StartButton").pressed.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_PRODUCTION, HTTPRequest.RESULT_SUCCESS, 202,
+		'{"commandId":"cmd_rej_01","status":"queued"}'
+	), "lifecycle: second queued ack delivered")
+	_node(main, "PollTimer").timeout.emit()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_COMMAND, HTTPRequest.RESULT_SUCCESS, 200,
+		'{"commandId":"cmd_rej_01","status":"rejected","executedAtTick":55,"errorCode":"ERR_LINE_BUSY"}'
+	), "lifecycle: rejected command status delivered")
+	var rejected_text: String = main.ui_command_text()
+	t.contains(rejected_text, "rejected", "lifecycle: rejection reports rejection")
+	t.contains(rejected_text, "ERR_LINE_BUSY", "lifecycle: rejection reports error code")
+	t.not_contains(rejected_text, "target applied", "lifecycle: rejected command does not report target applied")
+	t.not_contains(rejected_text, "completed batch", "lifecycle: rejected command does not report completion")
+
+	main.disconnect_from_server()
+	get_root().remove_child(main)
+	main.free()
+	server.stop()
