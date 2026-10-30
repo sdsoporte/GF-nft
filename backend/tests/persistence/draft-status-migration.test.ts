@@ -49,7 +49,7 @@ test('v5 upgrade preserves all legacy contract values and constraints and repeat
     const contract = saveLegacy(repositories);
     const before = repositories.contracts.list();
     const appliedBefore = getAppliedMigrations(database);
-    assert.deepEqual(migrate(database), { appliedVersions: [6, 7], currentVersion: 7 });
+    assert.deepEqual(migrate(database, draftEra), { appliedVersions: [6], currentVersion: 6 });
     assert.deepEqual(repositories.contracts.list(), before);
     assert.deepEqual(getAppliedMigrations(database).slice(0, 5), appliedBefore);
     const draft: SupplyContract = { ...contract, contractId: 'upgrade_draft', status: 'DRAFT' };
@@ -63,7 +63,7 @@ test('v5 upgrade preserves all legacy contract values and constraints and repeat
       assert.deepEqual(repositories.contracts.list(), all);
     }
     const applied = getAppliedMigrations(database);
-    assert.deepEqual(migrate(database), { appliedVersions: [], currentVersion: 7 });
+    assert.deepEqual(migrate(database, draftEra), { appliedVersions: [], currentVersion: 6 });
     assert.deepEqual(repositories.contracts.list(), all);
     assert.deepEqual(getAppliedMigrations(database), applied);
   } finally { closeDatabase(database); }
@@ -87,7 +87,7 @@ test('failed DRAFT migration rolls back table replacement and version before a c
     assert.deepEqual(repositories.contracts.list(), before);
     assert.throws(() => repositories.contracts.save({ ...contract, contractId: 'rolled_back_draft', status: 'DRAFT' }), /CHECK/);
     assert.deepEqual(repositories.contracts.list(), before);
-    assert.deepEqual(migrate(database), { appliedVersions: [6, 7], currentVersion: 7 });
+    assert.deepEqual(migrate(database, draftEra), { appliedVersions: [6], currentVersion: 6 });
     assert.deepEqual(repositories.contracts.list(), before);
   } finally { closeDatabase(database); }
 });

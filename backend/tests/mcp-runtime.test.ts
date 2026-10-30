@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from './helpers.ts';
 import { startOwnerApp, ownerSession, issueGrant } from './owner-fixtures.ts';
-import { ALL_SCOPES, LINE_A1, LINE_A2, TENANT_A, expectError, expectSuccess, targetParams, makeGrant } from './mcp/grant-helper.ts';
+import { ALL_SCOPES, LINE_A1, LINE_A2, LINE_A3, TENANT_A, expectError, expectSuccess, targetParams, makeGrant } from './mcp/grant-helper.ts';
 
 const tools = ['get_factory_overview', 'get_inventory', 'get_production_lines', 'get_contracts', 'get_market_quotes', 'get_action_history', 'set_production_target', 'set_line_priority', 'pause_production_line', 'resume_production_line', 'schedule_internal_transport', 'draft_supply_offer', 'cancel_own_pending_offer'];
 const writeGrant = { phaseMode: 'PHASE_1B_READ_WRITE', scopes: ALL_SCOPES };
@@ -95,6 +95,97 @@ test('grant policy and accepted MCP commands survive restart before a tick, with
   } finally { await app.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+
+test('line cooldown survives a backend restart (issue #15)', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'gf-mcp-cooldown-'));
+  const path = join(directory, 'match.db');
+  let app = await startOwnerApp({ path });
+  try {
+    const session = await ownerSession(app);
+    const issued = await issueGrant(app, session, writeGrant);
+    expectSuccess(await app.handle.mcp!.invokeTool(issued.token, 'set_production_target', targetParams(LINE_A1, 'idem_cd_first')));
+    app.clock.advance();
+    assert.equal(app.handle.match.engine.getCurrentTick(), 1);
+    await app.close();
+
+    app = await startOwnerApp({ path });
+    assert.equal(app.handle.match.engine.getCurrentTick(), 1);
+    // The line cooldown is 5 ticks; only 1 elapsed, so the re-target must be
+    // rejected even though the cooldown Map started empty after the restart.
+    const rejected = expectError(
+      await app.handle.mcp!.invokeTool(issued.token, 'set_production_target', targetParams(LINE_A1, 'idem_cd_second')),
+      'ERR_INVALID_PAYLOAD'
+    );
+    assert.match(rejected.errorMessage, /ERR_COOLDOWN_ACTIVE/);
+    assert.equal(app.handle.match.engine.getCommandQueue().getPendingCount(), 0);
+
+    // Positive control: once the batch finished (tick 10) and the cooldown
+    // elapsed, the same line accepts a new target again.
+    app.clock.advance(9);
+    assert.equal(app.handle.match.engine.getCurrentTick(), 10);
+    expectSuccess(await app.handle.mcp!.invokeTool(issued.token, 'set_production_target', targetParams(LINE_A1, 'idem_cd_third')));
+  } finally { await app.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('write rate limit and match write quota survive a backend restart (issue #15)', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'gf-mcp-quota-'));
+  const path = join(directory, 'match.db');
+  let app = await startOwnerApp({ path });
+  try {
+    const session = await ownerSession(app);
+    const rateLimited = await issueGrant(app, session, { ...writeGrant, quotas: { maxWritePerMinute: 1, maxWritePerMatch: 10 } });
+    const matchQuota = await issueGrant(app, session, { ...writeGrant, quotas: { maxWritePerMinute: 60, maxWritePerMatch: 1 } });
+    // First accepted write per grant. Cooldowns are per line (not per grant),
+    // so the two grants take different lines.
+    expectSuccess(await app.handle.mcp!.invokeTool(rateLimited.token, 'set_production_target', targetParams(LINE_A1, 'idem_rate_first')));
+    expectSuccess(await app.handle.mcp!.invokeTool(matchQuota.token, 'set_production_target', targetParams(LINE_A2, 'idem_match_first')));
+    await app.close();
+
+    app = await startOwnerApp({ path });
+    // Drain the queued first writes and let the tick-0 line cooldowns elapse;
+    // the wall-clock rate window cannot have expired.
+    app.clock.advance(5);
+    assert.equal(app.handle.match.engine.getCommandQueue().getPendingCount(), 0);
+    // The per-minute window cannot have expired, so the second write must
+    // still hit the persisted rate limit instead of evading it. LINE_A3 was
+    // never written, so no cooldown interferes with the quota assertions.
+    const rate = expectError(
+      await app.handle.mcp!.invokeTool(rateLimited.token, 'set_production_target', targetParams(LINE_A3, 'idem_rate_second')),
+      'ERR_RATE_LIMIT_EXCEEDED'
+    );
+    assert.match(rate.errorMessage, /Write rate limit exceeded \(1\/min\)/);
+    const quota = expectError(
+      await app.handle.mcp!.invokeTool(matchQuota.token, 'set_production_target', targetParams(LINE_A3, 'idem_match_second')),
+      'ERR_RATE_LIMIT_EXCEEDED'
+    );
+    assert.match(quota.errorMessage, /Match write quota exceeded \(1\/match\)/);
+    assert.equal(app.handle.match.engine.getCommandQueue().getPendingCount(), 0);
+  } finally { await app.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('concurrent duplicate requests enqueue at most one command (issue #15)', async () => {
+  const app = await startOwnerApp();
+  try {
+    const session = await ownerSession(app);
+    const issued = await issueGrant(app, session, writeGrant);
+    const attempts = Array.from({ length: 12 }, () =>
+      app.handle.mcp!.invokeTool(issued.token, 'set_production_target', targetParams(LINE_A1, 'idem_concurrent_burst'))
+    );
+    const responses = await Promise.all(attempts);
+    const enqueued = responses.filter((response) => response.success);
+    assert.equal(enqueued.length, 1, 'exactly one concurrent attempt may enqueue');
+    assert.equal(app.handle.match.engine.getCommandQueue().getPendingCount(), 1);
+    assert.equal(app.handle.match.engine.getCommandQueue().getSequenceCounter(), 1);
+    for (const response of responses.filter((item) => !item.success)) {
+      assert.equal(response.errorCode, 'ERR_DUPLICATE_IDEMPOTENCY_KEY');
+    }
+    // The single queued command executes once and its escrow is recorded once.
+    app.clock.advance(1);
+    const history = app.handle.match.engine.getCompanyExecutionHistory(TENANT_A);
+    assert.equal(history.length, 1);
+    assert.equal(history[0].success, true);
+  } finally { await app.close(); }
+});
 
 test('changing the configured owner cannot expose, revoke or use another owner persisted grant', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'gf-mcp-owner-'));
