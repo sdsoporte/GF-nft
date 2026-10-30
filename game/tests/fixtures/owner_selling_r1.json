@@ -1,0 +1,39 @@
+{
+  "tick": 120,
+  "companyId": "comp_metal_01",
+  "availableCredits": 10000,
+  "marketFeeBps": 200,
+  "contracts": [
+    {
+      "contractId": "cnt_112_3",
+      "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": "comp_metal_02",
+      "itemId": "IRON_INGOT",
+      "totalQuantity": 5,
+      "deliveredQuantity": 0,
+      "unitPriceCredits": 10,
+      "totalValueCredits": 50,
+      "collateralSellerCredits": 10,
+      "createdAtTick": 112,
+      "deadlineTick": 2112,
+      "status": "ACTIVE",
+      "settledAtTick": null,
+      "consequences": {
+        "buyerEscrowCredits": 50,
+        "sellerCollateralCredits": 10,
+        "marketFeeCredits": 1,
+        "sellerNetOnFullDeliveryCredits": 49,
+        "penaltyPerMissingUnitCredits": 10,
+        "maximumDefaultIndemnityCredits": 10
+      }
+    }
+  ],
+  "recentCommands": [
+    {
+      "idempotencyKey": "sell_draft-1-1",
+      "status": "executed",
+      "executedAtTick": 111,
+      "errorCode": null
+    }
+  ]
+}
