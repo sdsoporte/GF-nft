@@ -26,6 +26,7 @@ import { GrantRepository } from './grants.ts';
 import { InventoryRepository } from './inventory.ts';
 import { LotRepository } from './lots.ts';
 import { MatchMetadataRepository } from './matches.ts';
+import { McpPolicyEventRepository } from './mcpPolicyEvents.ts';
 import { ProductionLineRepository } from './lines.ts';
 import { ReservationRepository } from './reservations.ts';
 import { SettlementCounterRepository } from './settlementCounters.ts';
@@ -52,6 +53,7 @@ export { GrantRepository, type AuditListFilter, type GrantListFilter } from './g
 export { InventoryRepository } from './inventory.ts';
 export { LotRepository, type LotListFilter } from './lots.ts';
 export { MatchMetadataRepository } from './matches.ts';
+export { McpPolicyEventRepository, type McpPolicyEventWrite } from './mcpPolicyEvents.ts';
 export { ProductionLineRepository } from './lines.ts';
 export { ReservationRepository, type ReservationListFilter } from './reservations.ts';
 export {
@@ -83,6 +85,12 @@ export class Repositories {
   readonly queue: CommandQueueRepository;
   readonly ackLedger: AckLedgerRepository;
   readonly commandResults: CommandResultRepository;
+  /**
+   * Durable MCP policy evidence (issue #15): append-only read/write/line_write
+   * events the gateway consults at check time so limits survive restarts and
+   * instances. Evidence only; the decision logic lives in the gateway.
+   */
+  readonly mcpPolicyEvents: McpPolicyEventRepository;
 
   constructor(database: Database) {
     this.database = database;
@@ -100,6 +108,7 @@ export class Repositories {
     this.queue = new CommandQueueRepository(database);
     this.ackLedger = new AckLedgerRepository(database);
     this.commandResults = new CommandResultRepository(database);
+    this.mcpPolicyEvents = new McpPolicyEventRepository(database);
   }
 
   /**

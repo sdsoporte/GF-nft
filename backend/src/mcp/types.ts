@@ -49,10 +49,37 @@ export interface McpResolvedGrant {
   readonly revoked: boolean;
 }
 
+/** One consumed quota or line-action event, appended to the durable store. */
+export interface McpPolicyEventInput {
+  readonly grantId: string;
+  readonly kind: 'read' | 'write' | 'line_write';
+  readonly atUtcMs: number;
+  readonly matchId?: string;
+  readonly companyId?: string;
+  readonly lineId?: string;
+  readonly tool?: string;
+  readonly tick?: number;
+}
+
+/**
+ * Durable policy evidence consulted at check time (issue #15): when present,
+ * the gateway enforces rate limits, match quotas and line cooldowns against
+ * this store instead of process-local Maps, so a restart or a second instance
+ * sharing the database cannot evade them.
+ */
+export interface McpPolicyStore {
+  record(event: McpPolicyEventInput): void;
+  lastLineWriteTick(companyId: string, lineId: string, tool: string): number | undefined;
+  writeCountSince(grantId: string, sinceUtcMs: number): number;
+  readCountSince(grantId: string, sinceUtcMs: number): number;
+  matchWriteCount(grantId: string, matchId: string): number;
+}
+
 export interface McpGatewayOptions {
   readonly resolveGrant?: (token: string) => McpResolvedGrant | undefined;
   readonly submitCommand?: (command: EnqueueCommandInput) => boolean;
   readonly now?: () => number;
+  readonly policyStore?: McpPolicyStore;
 }
 
 export type McpReadToolName =
