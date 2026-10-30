@@ -30,6 +30,9 @@ coverage/
 /game/exports/
 /game/addons/godot_ai/
 
+# Licensed third-party art is installed locally, never redistributed in Git.
+/game/local_assets/
+
 # Generated local code-intelligence/editor caches, not product source.
 .codegraph/
 .atl/
