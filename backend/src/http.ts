@@ -92,7 +92,14 @@ interface LineControlRoute {
 type ResolvedRoute =
   | {
       readonly kind: 'route';
-      readonly name: 'health' | 'state' | 'production' | 'command' | 'mcp';
+      readonly name:
+        | 'health'
+        | 'state'
+        | 'production'
+        | 'command'
+        | 'mcp'
+        | 'market_offers'
+        | 'contracts';
       readonly commandId?: string;
     }
   | { readonly kind: 'route'; readonly name: 'line_control'; readonly lineControl: LineControlRoute }
@@ -115,6 +122,14 @@ function resolveRoute(method: string, pathname: string): ResolvedRoute {
   }
   if (path === '/v1/production') {
     return method === 'POST' ? { kind: 'route', name: 'production' } : { kind: 'method_not_allowed' };
+  }
+
+  // Issue #58: additive read-only market visibility, GET-only like /v1/state.
+  if (path === '/v1/market/offers') {
+    return method === 'GET' ? { kind: 'route', name: 'market_offers' } : { kind: 'method_not_allowed' };
+  }
+  if (path === '/v1/contracts') {
+    return method === 'GET' ? { kind: 'route', name: 'contracts' } : { kind: 'method_not_allowed' };
   }
 
   // Issue #57: additive player line controls, POST-only like /v1/production.
@@ -653,6 +668,17 @@ async function handleRequest(
   if (route.name === 'state') {
     await discardBody(req);
     sendJson(res, 200, context.match.getStatePayload());
+    return;
+  }
+  // Issue #58: read-only projections of engine state, no mutation, no controls.
+  if (route.name === 'market_offers') {
+    await discardBody(req);
+    sendJson(res, 200, context.match.getMarketOffersPayload());
+    return;
+  }
+  if (route.name === 'contracts') {
+    await discardBody(req);
+    sendJson(res, 200, context.match.getContractsPayload());
     return;
   }
   if (route.name === 'production') {

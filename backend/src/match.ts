@@ -21,12 +21,14 @@ import { NpcController } from './engine/npc/NpcController.ts';
 import type {
   CommandExecutionResult,
   CompanyState,
+  ContractStatus,
   DistributiveOmit,
   EnqueueCommandInput,
   GameCommand,
   IndustrialClass,
   LinePriority,
   RecipeId,
+  SupplyContract,
 } from './domain/types.ts';
 import {
   deriveGlobalProjectState,
@@ -72,6 +74,55 @@ export interface StatePayload {
   readonly tickIntervalMs: number;
   readonly company: CompanyState;
   readonly recipes: ReadonlyArray<RecipeProjection>;
+}
+
+/**
+ * One tradable supply offer as the player sees it (issue #58).
+ *
+ * Read-only visibility only: the projection carries the terms of the offer and
+ * never a command, a control or an engine object.
+ */
+export interface MarketOfferProjection {
+  readonly contractId: string;
+  readonly sellerCompanyId: string;
+  readonly buyerCompanyId: string | null;
+  readonly itemId: string;
+  readonly quantity: number;
+  readonly unitPriceCredits: number;
+  readonly totalValueCredits: number;
+  readonly createdAtTick: number;
+  readonly deadlineTick: number;
+}
+
+/** `GET /v1/market/offers`: the public book plus the tick it describes. */
+export interface MarketOffersPayload {
+  readonly tick: number;
+  readonly offers: ReadonlyArray<MarketOfferProjection>;
+}
+
+/** One contract of the server-selected company (issue #58). */
+export interface ContractProjection {
+  readonly contractId: string;
+  readonly sellerCompanyId: string;
+  readonly buyerCompanyId: string;
+  readonly itemId: string;
+  readonly totalQuantity: number;
+  readonly deliveredQuantity: number;
+  readonly unitPriceCredits: number;
+  readonly totalValueCredits: number;
+  readonly collateralSellerCredits: number;
+  readonly createdAtTick: number;
+  readonly deadlineTick: number;
+  readonly status: ContractStatus;
+  /** Explicit absence instead of an omitted key: `null` until settlement. */
+  readonly settledAtTick: number | null;
+}
+
+/** `GET /v1/contracts`: the own-contract list plus the tick it describes. */
+export interface ContractsPayload {
+  readonly tick: number;
+  readonly companyId: string;
+  readonly contracts: ReadonlyArray<ContractProjection>;
 }
 
 export type CommandStatus = 'queued' | 'executed' | 'rejected';
@@ -219,6 +270,30 @@ function projectRecipe(recipeId: RecipeId, industrialClass: IndustrialClass): Re
     durationTicks: profile.durationTicks,
     energyCost: profile.energyCost,
   };
+}
+
+/**
+ * Issue #58: what makes an offer tradable right now.
+ *
+ * `PENDING` only (a `DRAFT` is its creator's private business) and unexpired,
+ * using the same absolute-tick predicate the NPC policy and the engine's own
+ * dispatch checks use: an offer dies once `currentTick` reaches its deadline.
+ */
+function isTradableOffer(contract: SupplyContract, currentTick: number): boolean {
+  return contract.status === 'PENDING' && contract.deadlineTick > currentTick;
+}
+
+/**
+ * Issue #58: the visibility rule the MCP `get_contracts` tool already applies.
+ *
+ * A contract is own when the company is its seller or its buyer; a `DRAFT` is
+ * own only for its seller, so a foreign draft never reaches the player.
+ */
+function isOwnContract(contract: SupplyContract, companyId: string): boolean {
+  return (
+    (contract.sellerCompanyId === companyId || contract.buyerCompanyId === companyId) &&
+    (contract.status !== 'DRAFT' || contract.sellerCompanyId === companyId)
+  );
 }
 
 export class FactoryMatch {
@@ -791,6 +866,67 @@ export class FactoryMatch {
       throw new Error(`The server-selected company ${SERVER_COMPANY_ID} is missing from the match`);
     }
     return company;
+  }
+
+  /**
+   * The public supply book (issue #58).
+   *
+   * Only offers anyone may accept right now are listed: `PENDING` offers whose
+   * deadline has not passed. Entry order is the engine's contract order, so two
+   * identical matches produce identical books. The projection is derived from
+   * engine state on every request and mutates nothing.
+   */
+  public getMarketOffersPayload(): MarketOffersPayload {
+    const tick = this.engine.getCurrentTick();
+    const offers = this.engine
+      .getAllContracts()
+      .filter((contract) => isTradableOffer(contract, tick))
+      .map((contract) => ({
+        contractId: contract.contractId,
+        sellerCompanyId: contract.sellerCompanyId,
+        // The engine uses '' for "any buyer"; the wire says so explicitly.
+        buyerCompanyId: contract.buyerCompanyId === '' ? null : contract.buyerCompanyId,
+        itemId: contract.itemId,
+        quantity: contract.totalQuantity,
+        unitPriceCredits: contract.unitPriceCredits,
+        totalValueCredits: contract.totalValueCredits,
+        createdAtTick: contract.createdAtTick,
+        deadlineTick: contract.deadlineTick,
+      }));
+
+    return { tick, offers };
+  }
+
+  /**
+   * The server-selected company's own contracts (issue #58).
+   *
+   * Terms, delivery progress, status and settlement tick are projected verbatim
+   * from engine state; the route adds nothing and decides nothing. Foreign
+   * drafts and foreign contracts never appear.
+   */
+  public getContractsPayload(): ContractsPayload {
+    const company = this.getServerCompany();
+    const tick = this.engine.getCurrentTick();
+    const contracts = this.engine
+      .getAllContracts()
+      .filter((contract) => isOwnContract(contract, company.companyId))
+      .map((contract) => ({
+        contractId: contract.contractId,
+        sellerCompanyId: contract.sellerCompanyId,
+        buyerCompanyId: contract.buyerCompanyId,
+        itemId: contract.itemId,
+        totalQuantity: contract.totalQuantity,
+        deliveredQuantity: contract.deliveredQuantity,
+        unitPriceCredits: contract.unitPriceCredits,
+        totalValueCredits: contract.totalValueCredits,
+        collateralSellerCredits: contract.collateralSellerCredits,
+        createdAtTick: contract.createdAtTick,
+        deadlineTick: contract.deadlineTick,
+        status: contract.status,
+        settledAtTick: contract.settledAtTick ?? null,
+      }));
+
+    return { tick, companyId: company.companyId, contracts };
   }
 
   /** Detached own-company state plus the supported recipe projection. */
