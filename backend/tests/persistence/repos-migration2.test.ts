@@ -143,7 +143,8 @@ test('migration 2 keeps version 1 intact and is the only schema delta', () => {
     assert.deepEqual(
       listTables(),
       [...tablesBefore, 'account_nonces', 'credit_ledger_movements',
-        'credit_ledger_opening_balances', 'credit_ledger_openings', 'settlement_counters', 'mcp_policy_events'].sort(),
+        'credit_ledger_opening_balances', 'credit_ledger_openings', 'mcp_policy_events',
+        'match_snapshots', 'settlement_counters'].sort(),
     );
   });
 });
