@@ -138,6 +138,9 @@ else
 	done
 fi
 
+# Named suites are echoed so a new tests/test_*.gd file is visibly registered in
+# the run, including test_isometric_view.
+echo "suites: ${suites[*]}"
 failed_suites=()
 for suite in "${suites[@]}"; do
 	suite_log="$LOG_DIR/$suite.log"
