@@ -1,0 +1,36 @@
+{
+  "tick": 42,
+  "companyId": "comp_metal_01",
+  "contracts": [
+    {
+      "contractId": "cnt_fixture_03",
+      "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": "comp_manuf_02",
+      "itemId": "MEGAMACHINE_PART",
+      "totalQuantity": 2,
+      "deliveredQuantity": 1,
+      "unitPriceCredits": 10,
+      "totalValueCredits": 20,
+      "collateralSellerCredits": 4,
+      "createdAtTick": 6,
+      "deadlineTick": 206,
+      "status": "ACTIVE",
+      "settledAtTick": null
+    },
+    {
+      "contractId": "cnt_fixture_04",
+      "sellerCompanyId": "comp_metal_02",
+      "buyerCompanyId": "comp_metal_01",
+      "itemId": "IRON_INGOT",
+      "totalQuantity": 10,
+      "deliveredQuantity": 10,
+      "unitPriceCredits": 25,
+      "totalValueCredits": 250,
+      "collateralSellerCredits": 25,
+      "createdAtTick": 10,
+      "deadlineTick": 100,
+      "status": "FULFILLED",
+      "settledAtTick": 35
+    }
+  ]
+}

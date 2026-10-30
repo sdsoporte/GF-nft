@@ -1,0 +1,27 @@
+{
+  "tick": 42,
+  "offers": [
+    {
+      "contractId": "cnt_fixture_01",
+      "sellerCompanyId": "comp_metal_02",
+      "buyerCompanyId": null,
+      "itemId": "IRON_INGOT",
+      "quantity": 5,
+      "unitPriceCredits": 22,
+      "totalValueCredits": 110,
+      "createdAtTick": 12,
+      "deadlineTick": 312
+    },
+    {
+      "contractId": "cnt_fixture_02",
+      "sellerCompanyId": "comp_manuf_01",
+      "buyerCompanyId": "comp_metal_01",
+      "itemId": "RAW_ORE",
+      "quantity": 50,
+      "unitPriceCredits": 8,
+      "totalValueCredits": 400,
+      "createdAtTick": 20,
+      "deadlineTick": 250
+    }
+  ]
+}

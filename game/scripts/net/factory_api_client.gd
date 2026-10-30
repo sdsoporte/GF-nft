@@ -17,6 +17,8 @@ signal snapshot_received(snapshot: FactorySnapshot)
 signal production_queued(ack: Dictionary)
 signal line_control_queued(ack: Dictionary)
 signal command_status_changed(command: Dictionary)
+signal market_offers_received(offers_data: Dictionary)
+signal contracts_received(contracts_data: Dictionary)
 signal request_failed(message: String, fatal: bool)
 
 const EXCHANGE_NONE := ""
@@ -25,6 +27,8 @@ const EXCHANGE_STATE := "state"
 const EXCHANGE_PRODUCTION := "production"
 const EXCHANGE_LINE_CONTROL := "line_control"
 const EXCHANGE_COMMAND := "command"
+const EXCHANGE_MARKET_OFFERS := "market_offers"
+const EXCHANGE_CONTRACTS := "contracts"
 
 const STATE_DISCONNECTED := "disconnected"
 const STATE_CONNECTING := "connecting"
@@ -35,6 +39,8 @@ const PATH_HEALTH := "/health"
 const PATH_STATE := "/v1/state"
 const PATH_PRODUCTION := "/v1/production"
 const PATH_COMMANDS := "/v1/commands/"
+const PATH_MARKET_OFFERS := "/v1/market/offers"
+const PATH_CONTRACTS := "/v1/contracts"
 
 const HTTP_TIMEOUT_SECONDS := 5.0
 const NO_REDIRECTS := 0
@@ -172,6 +178,18 @@ func _submit_line_control(line_id: String, action: String, priority: int = 0) ->
 	return {"ok": true, "error": ""}
 
 
+func poll_market_offers() -> bool:
+	if _connection_state != STATE_CONNECTED or is_busy():
+		return false
+	return _begin_exchange(EXCHANGE_MARKET_OFFERS, PATH_MARKET_OFFERS, HTTPClient.METHOD_GET, "", true)
+
+
+func poll_contracts() -> bool:
+	if _connection_state != STATE_CONNECTED or is_busy():
+		return false
+	return _begin_exchange(EXCHANGE_CONTRACTS, PATH_CONTRACTS, HTTPClient.METHOD_GET, "", true)
+
+
 ## Applies one finished response. Public so tests can exercise the session rules
 ## without a live server; the HTTP callback uses the same path.
 func deliver_exchange_result(
@@ -210,6 +228,10 @@ func deliver_exchange_result(
 			_handle_line_control(response_code, body)
 		EXCHANGE_COMMAND:
 			_handle_command(response_code, body)
+		EXCHANGE_MARKET_OFFERS:
+			_handle_market_offers(response_code, body)
+		EXCHANGE_CONTRACTS:
+			_handle_contracts(response_code, body)
 	return true
 
 
@@ -332,6 +354,28 @@ func _handle_command(response_code: int, body: String) -> void:
 		_fail("The backend command status is not compatible: %s" % String(parsed["error"]), false)
 		return
 	command_status_changed.emit(parsed["command"])
+
+
+func _handle_market_offers(response_code: int, body: String) -> void:
+	if response_code != 200:
+		_fail(_http_failure_message("market offers read", response_code, body), _is_fatal_status(response_code))
+		return
+	var parsed := FactoryProtocol.parse_market_offers(body)
+	if not parsed["ok"]:
+		_fail("The backend market offers payload is not compatible: %s" % String(parsed["error"]), false)
+		return
+	market_offers_received.emit(parsed["value"])
+
+
+func _handle_contracts(response_code: int, body: String) -> void:
+	if response_code != 200:
+		_fail(_http_failure_message("contracts read", response_code, body), _is_fatal_status(response_code))
+		return
+	var parsed := FactoryProtocol.parse_contracts(body)
+	if not parsed["ok"]:
+		_fail("The backend contracts payload is not compatible: %s" % String(parsed["error"]), false)
+		return
+	contracts_received.emit(parsed["value"])
 
 
 func _http_failure_message(action: String, response_code: int, body: String) -> String:

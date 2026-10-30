@@ -23,6 +23,7 @@ func _process(_delta: float) -> bool:
 	_test_command_poll_recovery(t)
 	_test_production_lifecycle_distinction(t)
 	_test_line_controls_in_scene(t)
+	_test_market_visibility_in_scene(t)
 	quit(t.finish("test_main_scene"))
 	return true
 
@@ -538,6 +539,127 @@ func _test_line_controls_in_scene(t: TestSupport) -> void:
 	t.contains(rej_text, "ERR_LINE_NOT_FOUND", "rejection error code reported")
 
 	main.disconnect_from_server()
+	get_root().remove_child(main)
+	main.free()
+	server.stop()
+
+
+func _test_market_visibility_in_scene(t: TestSupport) -> void:
+	var main := _instantiate()
+	var offers_list: ItemList = _node(main, "OffersList")
+	var contracts_list: ItemList = _node(main, "ContractsList")
+	var market_tick_label: Label = _node(main, "MarketTickLabel")
+	var contracts_tick_label: Label = _node(main, "ContractsTickLabel")
+	var refresh_market_btn: Button = _node(main, "RefreshMarketButton")
+
+	t.check(offers_list != null, "offers list exists")
+	t.check(contracts_list != null, "contracts list exists")
+	t.check(market_tick_label != null, "market tick label exists")
+	t.check(contracts_tick_label != null, "contracts tick label exists")
+	t.check(refresh_market_btn != null, "refresh market button exists")
+
+	t.check(refresh_market_btn.disabled, "refresh market disabled before connection")
+	t.contains(market_tick_label.text, "not connected", "market tick shows not connected")
+	t.contains(contracts_tick_label.text, "not connected", "contracts tick shows not connected")
+
+	# Direct rendering with fixtures
+	var offers_parsed: Dictionary = FactoryProtocol.parse_market_offers(t.fixture("market_offers_ok.json"))
+	main.apply_market_offers(offers_parsed["value"])
+	var contracts_parsed: Dictionary = FactoryProtocol.parse_contracts(t.fixture("contracts_ok.json"))
+	main.apply_contracts(contracts_parsed["value"])
+
+	t.equal(main.ui_market_tick_text(), "Market (tick 42)", "market tick rendered")
+	t.equal(main.ui_contracts_tick_text(), "Contracts (tick 42)", "contracts tick rendered")
+
+	var offer_rows: PackedStringArray = main.ui_market_offer_rows()
+	t.equal(offer_rows.size(), 2, "two market offer rows rendered")
+	t.contains(offer_rows[0], "comp_metal_02", "offer row has seller")
+	t.contains(offer_rows[0], "IRON_INGOT", "offer row has item")
+	t.contains(offer_rows[0], "5", "offer row has quantity")
+	t.contains(offer_rows[0], "22", "offer row has unit price")
+	t.contains(offer_rows[0], "312", "offer row has deadline")
+
+	var contract_rows: PackedStringArray = main.ui_contract_rows()
+	t.equal(contract_rows.size(), 2, "two contract rows rendered")
+	t.contains(contract_rows[0], "ACTIVE", "contract row has status")
+	t.contains(contract_rows[0], "MEGAMACHINE_PART", "contract row has item")
+	t.contains(contract_rows[0], "1/2", "contract row has delivered/total")
+	t.contains(contract_rows[0], "206", "contract row has deadline")
+
+	# Empty state rendering
+	var empty_offers_parsed: Dictionary = FactoryProtocol.parse_market_offers(t.fixture("market_offers_empty.json"))
+	main.apply_market_offers(empty_offers_parsed["value"])
+	var empty_contracts_parsed: Dictionary = FactoryProtocol.parse_contracts(t.fixture("contracts_empty.json"))
+	main.apply_contracts(empty_contracts_parsed["value"])
+
+	var empty_offer_rows: PackedStringArray = main.ui_market_offer_rows()
+	t.equal(empty_offer_rows.size(), 1, "empty offers renders 1 row")
+	t.contains(empty_offer_rows[0], "No active market offers", "explicit empty offers message")
+
+	var empty_contract_rows: PackedStringArray = main.ui_contract_rows()
+	t.equal(empty_contract_rows.size(), 1, "empty contracts renders 1 row")
+	t.contains(empty_contract_rows[0], "No contracts for this company", "explicit empty contracts message")
+
+	# Network refresh cycle
+	var server := TCPServer.new()
+	if not t.equal(server.listen(0, "127.0.0.1"), OK, "market network test owns loopback"):
+		get_root().remove_child(main)
+		main.free()
+		return
+	var url := "http://127.0.0.1:%d" % server.get_local_port()
+	_node(main, "UrlEdit").text = url
+	_node(main, "TokenEdit").text = ENV_TOKEN
+	_node(main, "ConnectButton").pressed.emit()
+	var client: FactoryApiClient = main.get_client()
+	var generation := client.get_generation()
+
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_HEALTH, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("health_ok.json")
+	), "market_net: health accepted")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "market_net: initial snapshot accepted")
+
+	t.check(not refresh_market_btn.disabled, "refresh market button enabled when connected")
+
+	# Trigger refresh
+	refresh_market_btn.pressed.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_MARKET_OFFERS, "refresh starts market offers exchange")
+	t.check(refresh_market_btn.disabled, "refresh button disabled while in flight")
+	t.check(_node(main, "StartButton").disabled, "start button disabled while market fetch in flight")
+
+	# Deliver market offers 200 -> chains to contracts
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_MARKET_OFFERS, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("market_offers_ok.json")
+	), "market_net: offers accepted")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_CONTRACTS, "offers completion chains to contracts")
+
+	# Deliver contracts 200
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_CONTRACTS, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("contracts_ok.json")
+	), "market_net: contracts accepted")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "exchanges finished")
+	t.check(not refresh_market_btn.disabled, "refresh button re-enabled")
+	t.equal(main.ui_market_offer_rows().size(), 2, "two offers loaded via network")
+	t.equal(main.ui_contract_rows().size(), 2, "two contracts loaded via network")
+
+	# Non-fatal error handling: 500 on market read
+	refresh_market_btn.pressed.emit()
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_MARKET_OFFERS, "second refresh started")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_MARKET_OFFERS, HTTPRequest.RESULT_SUCCESS, 500,
+		'{"error":{"code":"INTERNAL_ERROR","message":"Market service unavailable."}}'
+	), "500 delivered")
+	t.contains(main.ui_error_text(), "INTERNAL_ERROR", "error label displays INTERNAL_ERROR")
+	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "session stays connected")
+	t.check(not refresh_market_btn.disabled, "refresh button restored")
+
+	main.disconnect_from_server()
+	t.contains(market_tick_label.text, "not connected", "disconnect clears market tick")
+	t.contains(contracts_tick_label.text, "not connected", "disconnect clears contracts tick")
+	t.equal(main.ui_market_offer_rows().size(), 0, "disconnect clears offers list")
+	t.equal(main.ui_contract_rows().size(), 0, "disconnect clears contracts list")
+
 	get_root().remove_child(main)
 	main.free()
 	server.stop()

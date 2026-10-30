@@ -52,13 +52,13 @@ Read that file before changing request or response shapes.
 
 | Path | Role |
 | --- | --- |
-| `scenes/main.tscn` | Visible factory screen: connection controls, status, match/tick, credits/energy, inventory, lines, line controls (pause/resume/priority), recipes, R1 action. |
-| `scripts/main.gd` | Scene wiring; renders snapshots and forwards player production and line control actions. |
+| `scenes/main.tscn` | Visible factory screen: connection controls, status, match/tick, credits/energy, inventory, lines, line controls (pause/resume/priority), recipes, R1 action, and read-only market visibility (public offers and own contracts). |
+| `scripts/main.gd` | Scene wiring; renders snapshots, market offers, own contracts, and forwards player production, line control, and market refresh actions. |
 | `scripts/protocol/endpoint_policy.gd` | URL and token policy (plaintext loopback only, no credentials in URLs). |
-| `scripts/protocol/factory_protocol.gd` | Validating parser for `/health`, `/v1/state`, `/v1/production`, `/v1/lines/{lineId}/*`, `/v1/commands/<id>` and errors; builds production and line control requests. |
+| `scripts/protocol/factory_protocol.gd` | Validating parser for `/health`, `/v1/state`, `/v1/production`, `/v1/lines/{lineId}/*`, `/v1/commands/<id>`, `/v1/market/offers`, `/v1/contracts` and errors; builds production and line control requests. |
 | `scripts/protocol/factory_snapshot.gd` | Detached snapshot data object (no behavior, no mutation). |
-| `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, line controls, command status, error redaction. |
-| `scripts/view/factory_view_model.gd` | Pure snapshot → screen text projection. |
+| `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, line controls, market offers, contracts, command status, error redaction. |
+| `scripts/view/factory_view_model.gd` | Pure snapshot, market offers and contracts → screen text projection. |
 | `scripts/dev/factory_smoke.gd` | Optional `--smoke` runner that drives the visible scene against a real backend. |
 | `tests/` | Headless Godot suites with contract fixtures. |
 
@@ -103,7 +103,8 @@ checkout runs without Funplay. To keep the plugin available locally, create
 ## Limits of this slice
 
 - One metallurgy company and one recipe (R1) on an idle line.
-- The visible slice does not expose contracts, wallets or NPC automation.
+- The visible slice exposes read-only market offers and company contracts; trading mutations (accept, cancel, dispatch) are Milestone B.
+- Wallets or NPC automation are not exposed in this scene.
 - An unconfigured backend is in memory; with `GF_SQLITE_PATH` (the Compose
   default), SQLite re-adopts the match after restart. See the backend guide.
 - Loopback deployment only; this is not an internet-ready authentication story.

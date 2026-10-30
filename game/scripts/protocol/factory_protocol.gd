@@ -16,6 +16,7 @@ const PRODUCTION_RECIPE_ID := "R1"
 const ALLOWED_LINE_STATUSES := ["IDLE", "RUNNING", "PAUSED", "NO_ENERGY"]
 const ALLOWED_COMMAND_STATUSES := ["queued", "executed", "rejected"]
 const FINAL_COMMAND_STATUSES := ["executed", "rejected"]
+const ALLOWED_CONTRACT_STATUSES := ["DRAFT", "PENDING", "ACTIVE", "FULFILLED", "DEFAULTED", "CANCELLED"]
 
 
 static func parse_state(body: String) -> Dictionary:
@@ -270,6 +271,175 @@ static func line_priority_path(line_id: String) -> String:
 
 static func parse_line_control_ack(body: String) -> Dictionary:
 	return parse_production_ack(body)
+
+
+static func parse_market_offers(body: String) -> Dictionary:
+	var root := _parse_object(body, "market offers")
+	if not root["ok"]:
+		return root
+	var data: Dictionary = root["value"]
+
+	var tick_result := _int_field(data, "tick", 0, "market offers")
+	if not tick_result["ok"]:
+		return tick_result
+	var tick: int = int(tick_result["value"])
+
+	var offers_result := _array_field(data, "offers", "market offers")
+	if not offers_result["ok"]:
+		return offers_result
+	var raw_offers: Array = offers_result["value"]
+
+	var offers: Array = []
+	for i in raw_offers.size():
+		var raw: Variant = raw_offers[i]
+		if typeof(raw) != TYPE_DICTIONARY:
+			return _fail("market offers.offers[%d] must be an object." % i)
+		var item: Dictionary = raw
+		var contract_id := _identifier_field(item, "contractId", "market offers.offers[%d]" % i)
+		if not contract_id["ok"]:
+			return contract_id
+		var seller_company_id := _identifier_field(item, "sellerCompanyId", "market offers.offers[%d]" % i)
+		if not seller_company_id["ok"]:
+			return seller_company_id
+
+		var buyer_company_id: Variant = null
+		if item.has("buyerCompanyId") and item["buyerCompanyId"] != null:
+			var b_result := _identifier_field(item, "buyerCompanyId", "market offers.offers[%d]" % i)
+			if not b_result["ok"]:
+				return b_result
+			buyer_company_id = String(b_result["value"])
+
+		var item_id := _identifier_field(item, "itemId", "market offers.offers[%d]" % i)
+		if not item_id["ok"]:
+			return item_id
+		var quantity := _int_field(item, "quantity", 1, "market offers.offers[%d]" % i)
+		if not quantity["ok"]:
+			return quantity
+		var unit_price := _int_field(item, "unitPriceCredits", 1, "market offers.offers[%d]" % i)
+		if not unit_price["ok"]:
+			return unit_price
+		var total_value := _int_field(item, "totalValueCredits", 1, "market offers.offers[%d]" % i)
+		if not total_value["ok"]:
+			return total_value
+		var created_at := _int_field(item, "createdAtTick", 0, "market offers.offers[%d]" % i)
+		if not created_at["ok"]:
+			return created_at
+		var deadline := _int_field(item, "deadlineTick", 1, "market offers.offers[%d]" % i)
+		if not deadline["ok"]:
+			return deadline
+
+		offers.append({
+			"contractId": String(contract_id["value"]),
+			"sellerCompanyId": String(seller_company_id["value"]),
+			"buyerCompanyId": buyer_company_id,
+			"itemId": String(item_id["value"]),
+			"quantity": int(quantity["value"]),
+			"unitPriceCredits": int(unit_price["value"]),
+			"totalValueCredits": int(total_value["value"]),
+			"createdAtTick": int(created_at["value"]),
+			"deadlineTick": int(deadline["value"])
+		})
+
+	return _ok({"tick": tick, "offers": offers})
+
+
+static func parse_contracts(body: String) -> Dictionary:
+	var root := _parse_object(body, "contracts")
+	if not root["ok"]:
+		return root
+	var data: Dictionary = root["value"]
+
+	var tick_result := _int_field(data, "tick", 0, "contracts")
+	if not tick_result["ok"]:
+		return tick_result
+	var tick: int = int(tick_result["value"])
+
+	var company_id_result := _identifier_field(data, "companyId", "contracts")
+	if not company_id_result["ok"]:
+		return company_id_result
+	var company_id: String = String(company_id_result["value"])
+
+	var contracts_result := _array_field(data, "contracts", "contracts")
+	if not contracts_result["ok"]:
+		return contracts_result
+	var raw_contracts: Array = contracts_result["value"]
+
+	var contracts: Array = []
+	for i in raw_contracts.size():
+		var raw: Variant = raw_contracts[i]
+		if typeof(raw) != TYPE_DICTIONARY:
+			return _fail("contracts.contracts[%d] must be an object." % i)
+		var item: Dictionary = raw
+		var contract_id := _identifier_field(item, "contractId", "contracts.contracts[%d]" % i)
+		if not contract_id["ok"]:
+			return contract_id
+		var seller_company_id := _identifier_field(item, "sellerCompanyId", "contracts.contracts[%d]" % i)
+		if not seller_company_id["ok"]:
+			return seller_company_id
+
+		var buyer_company_id: Variant = null
+		if item.has("buyerCompanyId") and item["buyerCompanyId"] != null:
+			var b_result := _identifier_field(item, "buyerCompanyId", "contracts.contracts[%d]" % i)
+			if not b_result["ok"]:
+				return b_result
+			buyer_company_id = String(b_result["value"])
+
+		var item_id := _identifier_field(item, "itemId", "contracts.contracts[%d]" % i)
+		if not item_id["ok"]:
+			return item_id
+		var total_quantity := _int_field(item, "totalQuantity", 1, "contracts.contracts[%d]" % i)
+		if not total_quantity["ok"]:
+			return total_quantity
+		var delivered_quantity := _int_field(item, "deliveredQuantity", 0, "contracts.contracts[%d]" % i)
+		if not delivered_quantity["ok"]:
+			return delivered_quantity
+		var unit_price := _int_field(item, "unitPriceCredits", 1, "contracts.contracts[%d]" % i)
+		if not unit_price["ok"]:
+			return unit_price
+		var total_value := _int_field(item, "totalValueCredits", 1, "contracts.contracts[%d]" % i)
+		if not total_value["ok"]:
+			return total_value
+		var collateral := _int_field(item, "collateralSellerCredits", 0, "contracts.contracts[%d]" % i)
+		if not collateral["ok"]:
+			return collateral
+		var created_at := _int_field(item, "createdAtTick", 0, "contracts.contracts[%d]" % i)
+		if not created_at["ok"]:
+			return created_at
+		var deadline := _int_field(item, "deadlineTick", 1, "contracts.contracts[%d]" % i)
+		if not deadline["ok"]:
+			return deadline
+
+		var status_result := _string_field(item, "status", "contracts.contracts[%d]" % i)
+		if not status_result["ok"]:
+			return status_result
+		var status_str: String = String(status_result["value"])
+		if not ALLOWED_CONTRACT_STATUSES.has(status_str):
+			return _fail("contracts.contracts[%d].status must be one of %s." % [i, str(ALLOWED_CONTRACT_STATUSES)])
+
+		var settled_at: Variant = null
+		if item.has("settledAtTick") and item["settledAtTick"] != null:
+			var s_result := _int_field(item, "settledAtTick", 0, "contracts.contracts[%d]" % i)
+			if not s_result["ok"]:
+				return s_result
+			settled_at = int(s_result["value"])
+
+		contracts.append({
+			"contractId": String(contract_id["value"]),
+			"sellerCompanyId": String(seller_company_id["value"]),
+			"buyerCompanyId": buyer_company_id,
+			"itemId": String(item_id["value"]),
+			"totalQuantity": int(total_quantity["value"]),
+			"deliveredQuantity": int(delivered_quantity["value"]),
+			"unitPriceCredits": int(unit_price["value"]),
+			"totalValueCredits": int(total_value["value"]),
+			"collateralSellerCredits": int(collateral["value"]),
+			"createdAtTick": int(created_at["value"]),
+			"deadlineTick": int(deadline["value"]),
+			"status": status_str,
+			"settledAtTick": settled_at
+		})
+
+	return _ok({"tick": tick, "companyId": company_id, "contracts": contracts})
 
 
 static func build_request_id(prefix: String, sequence: int) -> String:

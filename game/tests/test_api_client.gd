@@ -31,6 +31,7 @@ func _process(_delta: float) -> bool:
 	_test_session_lifecycle(t)
 	_test_poll_and_production(t)
 	_test_line_controls(t)
+	_test_market_and_contracts_api(t)
 	_test_redirect_refusal(t)
 	_test_token_redaction(t)
 	_test_malformed_state(t)
@@ -257,6 +258,71 @@ func _test_line_controls(t: TestSupport) -> void:
 	t.check(not error_received[0]["fatal"], "403 is non-fatal")
 	t.contains(error_received[0]["msg"], "FORBIDDEN", "error message contains code")
 	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "session stays connected after non-fatal 403")
+
+	_dispose(client)
+
+
+func _test_market_and_contracts_api(t: TestSupport) -> void:
+	var client := _make_client()
+	var offers_events: Array = []
+	var contracts_events: Array = []
+	client.market_offers_received.connect(func(data: Dictionary) -> void: offers_events.append(data))
+	client.contracts_received.connect(func(data: Dictionary) -> void: contracts_events.append(data))
+
+	# Disconnected client refuses requests
+	t.check(not client.poll_market_offers(), "disconnected client refuses poll_market_offers")
+	t.check(not client.poll_contracts(), "disconnected client refuses poll_contracts")
+
+	var connected: Dictionary = _connect_with_health(t, client)
+	if not connected["ok"]:
+		_dispose(client)
+		return
+	var generation: int = connected["generation"]
+
+	# While state exchange is pending, market reads refuse to overlap
+	t.check(not client.poll_market_offers(), "market offers refuses to overlap state request")
+	t.check(not client.poll_contracts(), "contracts refuses to overlap state request")
+
+	# Deliver state
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "state accepted")
+
+	# Poll market offers
+	t.check(client.poll_market_offers(), "poll_market_offers starts exchange")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_MARKET_OFFERS, "exchange is market_offers")
+	t.check(not client.poll_contracts(), "contracts refuses to overlap market_offers")
+
+	# Deliver market offers 200
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_MARKET_OFFERS, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("market_offers_ok.json")
+	), "market offers accepted")
+	t.equal(offers_events.size(), 1, "market_offers_received emitted")
+	t.equal(int(offers_events[0].get("tick", -1)), 42, "market offers tick carried")
+
+	# Poll contracts
+	t.check(client.poll_contracts(), "poll_contracts starts exchange")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_CONTRACTS, "exchange is contracts")
+	t.check(not client.poll_market_offers(), "market offers refuses to overlap contracts")
+
+	# Deliver contracts 200
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_CONTRACTS, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("contracts_ok.json")
+	), "contracts accepted")
+	t.equal(contracts_events.size(), 1, "contracts_received emitted")
+	t.equal(String(contracts_events[0].get("companyId")), "comp_metal_01", "contracts companyId carried")
+
+	# Error handling on market read (e.g. 500 error is non-fatal)
+	t.check(client.poll_market_offers(), "poll_market_offers starts for error test")
+	var failures: Array = []
+	client.request_failed.connect(func(msg: String, fatal: bool) -> void: failures.append({"msg": msg, "fatal": fatal}))
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_MARKET_OFFERS, HTTPRequest.RESULT_SUCCESS, 500,
+		'{"error":{"code":"INTERNAL_ERROR","message":"Server error."}}'
+	), "500 delivered")
+	t.equal(failures.size(), 1, "request_failed emitted for 500")
+	t.check(not failures[0]["fatal"], "500 is non-fatal")
+	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "client stays connected after 500")
 
 	_dispose(client)
 

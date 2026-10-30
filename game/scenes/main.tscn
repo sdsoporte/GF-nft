@@ -254,6 +254,72 @@ theme_override_colors/font_color = Color(0.92, 0.45, 0.42, 1)
 theme_override_font_sizes/font_size = 13
 autowrap_mode = 3
 
+[node name="MarketRow" type="HBoxContainer" parent="Root/Column"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="OffersBox" type="VBoxContainer" parent="Root/Column/MarketRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="OffersHeader" type="HBoxContainer" parent="Root/Column/MarketRow/OffersBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="OffersTitle" type="Label" parent="Root/Column/MarketRow/OffersBox/OffersHeader"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Public market offers"
+
+[node name="MarketTickLabel" type="Label" parent="Root/Column/MarketRow/OffersBox/OffersHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.72, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Market: not connected"
+
+[node name="OffersList" type="ItemList" parent="Root/Column/MarketRow/OffersBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ContractsBox" type="VBoxContainer" parent="Root/Column/MarketRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ContractsHeader" type="HBoxContainer" parent="Root/Column/MarketRow/ContractsBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ContractsTitle" type="Label" parent="Root/Column/MarketRow/ContractsBox/ContractsHeader"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Own contracts"
+
+[node name="ContractsTickLabel" type="Label" parent="Root/Column/MarketRow/ContractsBox/ContractsHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.72, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Contracts: not connected"
+
+[node name="ContractsList" type="ItemList" parent="Root/Column/MarketRow/ContractsBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 100)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MarketActionsRow" type="HBoxContainer" parent="Root/Column"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RefreshMarketButton" type="Button" parent="Root/Column/MarketActionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "Refresh market & contracts"
+
 [node name="PollTimer" type="Timer" parent="."]
 unique_name_in_owner = true
 wait_time = 1.0
