@@ -32,6 +32,7 @@ func _process(_delta: float) -> bool:
 	_test_poll_and_production(t)
 	_test_line_controls(t)
 	_test_market_and_contracts_api(t)
+	_test_owner_session_and_selling(t)
 	_test_redirect_refusal(t)
 	_test_token_redaction(t)
 	_test_malformed_state(t)
@@ -323,6 +324,120 @@ func _test_market_and_contracts_api(t: TestSupport) -> void:
 	t.equal(failures.size(), 1, "request_failed emitted for 500")
 	t.check(not failures[0]["fatal"], "500 is non-fatal")
 	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "client stays connected after 500")
+
+	_dispose(client)
+
+
+func _test_owner_session_and_selling(t: TestSupport) -> void:
+	var client := _make_client()
+	var failures: Array = []
+	var queued: Array = []
+	var selling: Array = []
+	var sessions: Array = []
+	client.request_failed.connect(func(message: String, fatal: bool) -> void: failures.append({"message": message, "fatal": fatal}))
+	client.owner_command_queued.connect(func(ack: Dictionary) -> void: queued.append(ack))
+	client.owner_selling_received.connect(func(data: Dictionary) -> void: selling.append(data))
+	client.owner_session_opened.connect(func(meta: Dictionary) -> void: sessions.append(meta))
+
+	# Nothing financial exists before the root session is up.
+	t.check(not client.open_owner_session()["ok"], "a disconnected client cannot request an owner session")
+	t.check(not client.draft_offer("IRON_INGOT", 10, 5, 53)["ok"], "a disconnected client cannot draft")
+
+	var connected: Dictionary = _connect_with_health(t, client)
+	if not connected["ok"]:
+		_dispose(client)
+		return
+	var generation: int = connected["generation"]
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "the initial state read is consumed")
+	t.check(not client.has_owner_session(), "a root session does not imply an owner session")
+
+	# Every financial call is refused before it can start a request.
+	var draft_refused: Dictionary = client.draft_offer("IRON_INGOT", 10, 5, 53)
+	t.check(not draft_refused["ok"], "a draft is refused without an owner session")
+	t.contains(String(draft_refused["error"]), "owner session", "the refusal names the missing owner session")
+	t.check(not client.publish_offer("cnt_1_1")["ok"], "publishing is refused without an owner session")
+	t.check(not client.cancel_offer("cnt_1_1")["ok"], "cancelling is refused without an owner session")
+	t.check(not client.dispatch_offer("cnt_1_1", 1)["ok"], "dispatching is refused without an owner session")
+	t.check(not client.poll_owner_selling(), "the seller loop is not read without an owner session")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "no refused financial call started a request")
+	t.equal(queued.size(), 0, "no financial command was admitted")
+
+	# The root bearer is what authorizes the exchange; the result is memory-only.
+	var opened: Dictionary = client.open_owner_session()
+	t.check(opened["ok"], "a connected client can request an owner session")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_SESSION, "the exchange is the session request")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_SESSION, HTTPRequest.RESULT_SUCCESS, 201,
+		t.fixture("owner_session_ok.json")
+	), "the owner session response is consumed")
+	t.check(client.has_owner_session(), "a valid 201 gives the client an owner session")
+	t.equal(sessions.size(), 1, "the session metadata is announced")
+	t.not_contains(str(sessions[0]), "gf_owner_", "the announced metadata never carries the token")
+	t.contains(client.describe_session(), "owner=set", "the session description says an owner session exists")
+	t.not_contains(client.describe_session(), "gf_owner_", "the session description never prints the owner token")
+	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "the root read session stays connected")
+
+	# A draft is one owned key and one exchange.
+	var draft: Dictionary = client.draft_offer("IRON_INGOT", 10, 5, 53)
+	t.check(draft["ok"], "a draft starts with an owner session")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_DRAFT, "the draft exchange is the financial one")
+	var key := String(draft.get("idempotencyKey", ""))
+	t.check(FactoryProtocol.is_valid_idempotency_key(key), "the client owns one durable command key")
+	t.check(not client.draft_offer("IRON_INGOT", 10, 5, 53)["ok"], "a second financial call waits for the first")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_DRAFT, HTTPRequest.RESULT_SUCCESS, 202,
+		t.fixture("owner_ack_draft.json")
+	), "the draft acknowledgement is consumed")
+	t.equal(queued.size(), 1, "a 202 emits one queued acknowledgement")
+	t.equal(String(queued[0]["status"]), FactoryProtocol.OWNER_ACK_STATUS, "the acknowledgement is enqueue-only")
+
+	# The seller read model is a session-authenticated read.
+	t.check(client.poll_owner_selling(), "the seller loop can be read with an owner session")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_SELLING, "the read exchange is the seller loop")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_SELLING, HTTPRequest.RESULT_SUCCESS, 200,
+		t.fixture("owner_selling_ok.json")
+	), "the seller payload is consumed")
+	t.equal(selling.size(), 1, "the seller payload is announced")
+	t.equal((selling[0]["contracts"] as Array).size(), 2, "the seller payload carries the own contracts")
+
+	# Publish and dispatch acknowledgements use the same gate.
+	t.check(client.publish_offer("cnt_42_1")["ok"], "publishing an own contract starts")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_PUBLISH, "the publish exchange is financial")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_PUBLISH, HTTPRequest.RESULT_SUCCESS, 202,
+		t.fixture("owner_ack_publish.json")
+	), "the publish acknowledgement is consumed")
+	t.check(client.dispatch_offer("cnt_42_1", 3)["ok"], "dispatching an own contract starts")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_DISPATCH, "the dispatch exchange is financial")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_DISPATCH, HTTPRequest.RESULT_SUCCESS, 202,
+		t.fixture("owner_ack_dispatch.json")
+	), "the dispatch acknowledgement is consumed")
+	t.equal(queued.size(), 3, "each admitted financial command is announced once")
+	t.equal(String(queued[2]["contractId"]), "cnt_42_1", "the dispatch acknowledgement names the contract")
+	# A malformed acknowledgement is surfaced, never treated as admitted work.
+	t.check(client.publish_offer("cnt_42_1")["ok"], "a second publish starts")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_PUBLISH, HTTPRequest.RESULT_SUCCESS, 202,
+		t.fixture("owner_ack_wrong_status.json")
+	), "a malformed acknowledgement is consumed as a failure")
+	t.equal(queued.size(), 3, "a malformed acknowledgement announces nothing new")
+	t.equal(failures.size(), 1, "a malformed acknowledgement is reported")
+	t.not_contains(String(failures[0]["message"]), "gf_owner_", "the failure never prints the owner token")
+
+	# An expired owner session ends only the owner session.
+	t.check(client.cancel_offer("cnt_42_1")["ok"], "a cancel starts before the expiry test")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_CANCEL, HTTPRequest.RESULT_SUCCESS, 401,
+		t.fixture("error_unauthorized.json")
+	), "an owner 401 is consumed")
+	t.check(not client.has_owner_session(), "an owner 401 drops the owner token")
+	t.equal(client.get_connection_state(), FactoryApiClient.STATE_CONNECTED, "an owner 401 keeps the root session")
+	t.check(client.has_credentials(), "an owner 401 keeps the root bearer")
+	t.check(not client.draft_offer("IRON_INGOT", 1, 1, 20)["ok"], "a financial call after expiry is refused")
 
 	_dispose(client)
 

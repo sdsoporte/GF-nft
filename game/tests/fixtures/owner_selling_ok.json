@@ -1,0 +1,68 @@
+{
+  "tick": 42,
+  "companyId": "comp_metal_01",
+  "availableCredits": 10000,
+  "marketFeeBps": 200,
+  "contracts": [
+    {
+      "contractId": "cnt_42_1",
+      "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": null,
+      "itemId": "IRON_INGOT",
+      "totalQuantity": 10,
+      "deliveredQuantity": 0,
+      "unitPriceCredits": 5,
+      "totalValueCredits": 50,
+      "collateralSellerCredits": 10,
+      "createdAtTick": 41,
+      "deadlineTick": 53,
+      "status": "DRAFT",
+      "settledAtTick": null,
+      "consequences": {
+        "buyerEscrowCredits": 50,
+        "sellerCollateralCredits": 10,
+        "marketFeeCredits": 1,
+        "sellerNetOnFullDeliveryCredits": 49,
+        "penaltyPerMissingUnitCredits": 10,
+        "maximumDefaultIndemnityCredits": 10
+      }
+    },
+    {
+      "contractId": "cnt_40_2",
+      "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": "comp_manuf_02",
+      "itemId": "RAW_ORE",
+      "totalQuantity": 5,
+      "deliveredQuantity": 2,
+      "unitPriceCredits": 20,
+      "totalValueCredits": 100,
+      "collateralSellerCredits": 20,
+      "createdAtTick": 39,
+      "deadlineTick": 300,
+      "status": "ACTIVE",
+      "settledAtTick": null,
+      "consequences": {
+        "buyerEscrowCredits": 100,
+        "sellerCollateralCredits": 20,
+        "marketFeeCredits": 2,
+        "sellerNetOnFullDeliveryCredits": 98,
+        "penaltyPerMissingUnitCredits": 10,
+        "maximumDefaultIndemnityCredits": 20
+      }
+    }
+  ],
+  "recentCommands": [
+    {
+      "idempotencyKey": "sell_draft-1-1",
+      "status": "executed",
+      "executedAtTick": 41,
+      "errorCode": null
+    },
+    {
+      "idempotencyKey": "sell_publish-1-2",
+      "status": "rejected",
+      "executedAtTick": 41,
+      "errorCode": "ERR_INSUFFICIENT_COLLATERAL"
+    }
+  ]
+}

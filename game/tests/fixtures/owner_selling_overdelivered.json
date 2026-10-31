@@ -1,0 +1,32 @@
+{
+  "tick": 9,
+  "companyId": "comp_metal_01",
+  "availableCredits": 2000,
+  "marketFeeBps": 200,
+  "contracts": [
+    {
+      "contractId": "cnt_9_1",
+      "sellerCompanyId": "comp_metal_01",
+      "buyerCompanyId": "comp_manuf_02",
+      "itemId": "RAW_ORE",
+      "totalQuantity": 5,
+      "deliveredQuantity": 9,
+      "unitPriceCredits": 20,
+      "totalValueCredits": 100,
+      "collateralSellerCredits": 20,
+      "createdAtTick": 8,
+      "deadlineTick": 300,
+      "status": "ACTIVE",
+      "settledAtTick": null,
+      "consequences": {
+        "buyerEscrowCredits": 100,
+        "sellerCollateralCredits": 20,
+        "marketFeeCredits": 2,
+        "sellerNetOnFullDeliveryCredits": 98,
+        "penaltyPerMissingUnitCredits": 10,
+        "maximumDefaultIndemnityCredits": 20
+      }
+    }
+  ],
+  "recentCommands": []
+}

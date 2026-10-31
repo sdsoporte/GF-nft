@@ -1,0 +1,6 @@
+{
+  "status": "ENQUEUED_FOR_NEXT_TICK",
+  "scheduledTick": 45,
+  "contractId": "cnt_42_1",
+  "quantityToShip": 3
+}

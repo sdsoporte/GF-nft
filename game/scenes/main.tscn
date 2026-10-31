@@ -334,6 +334,186 @@ layout_mode = 2
 disabled = true
 text = "Refresh market & contracts"
 
+[node name="SellingBox" type="PanelContainer" parent="Root/Column"]
+layout_mode = 2
+
+[node name="SellingRows" type="VBoxContainer" parent="Root/Column/SellingBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="SellingHeader" type="HBoxContainer" parent="Root/Column/SellingBox/SellingRows"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="SellingTitle" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingHeader"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Sell your own output (owner session)"
+
+[node name="SellingSessionLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.68, 0.72, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "Owner session: none"
+
+[node name="OwnerSessionButton" type="Button" parent="Root/Column/SellingBox/SellingRows/SellingHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "Open owner session"
+
+[node name="SellingTermsRow" type="HBoxContainer" parent="Root/Column/SellingBox/SellingRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SellItemLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+layout_mode = 2
+text = "Item"
+
+[node name="SellItemEdit" type="LineEdit" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 0)
+layout_mode = 2
+placeholder_text = "IRON_INGOT"
+
+[node name="SellQuantityLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+layout_mode = 2
+text = "Qty"
+
+[node name="SellQuantityEdit" type="LineEdit" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+
+[node name="SellUnitPriceLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+layout_mode = 2
+text = "Unit price"
+
+[node name="SellUnitPriceEdit" type="LineEdit" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+
+[node name="SellHorizonLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+layout_mode = 2
+text = "Ticks until deadline"
+
+[node name="SellHorizonEdit" type="LineEdit" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+
+[node name="SellTargetBuyerLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+layout_mode = 2
+text = "Target buyer (optional)"
+
+[node name="SellTargetBuyerEdit" type="LineEdit" parent="Root/Column/SellingBox/SellingRows/SellingTermsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "empty = open offer"
+
+[node name="SellingActionsRow" type="HBoxContainer" parent="Root/Column/SellingBox/SellingRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DraftOfferButton" type="Button" parent="Root/Column/SellingBox/SellingRows/SellingActionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Draft offer"
+
+[node name="RefreshSellingButton" type="Button" parent="Root/Column/SellingBox/SellingRows/SellingActionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Refresh seller loop"
+
+[node name="SellingContractsList" type="ItemList" parent="Root/Column/SellingBox/SellingRows"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 80)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SellingContractActionsRow" type="HBoxContainer" parent="Root/Column/SellingBox/SellingRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PublishOfferButton" type="Button" parent="Root/Column/SellingBox/SellingRows/SellingContractActionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Publish selected draft"
+
+[node name="CancelOfferButton" type="Button" parent="Root/Column/SellingBox/SellingRows/SellingContractActionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Cancel selected offer"
+
+[node name="DispatchQuantityLabel" type="Label" parent="Root/Column/SellingBox/SellingRows/SellingContractActionsRow"]
+layout_mode = 2
+text = "Ship qty"
+
+[node name="DispatchQuantityEdit" type="LineEdit" parent="Root/Column/SellingBox/SellingRows/SellingContractActionsRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+
+[node name="DispatchOfferButton" type="Button" parent="Root/Column/SellingBox/SellingRows/SellingContractActionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Dispatch goods"
+
+[node name="SellingStatusLabel" type="Label" parent="Root/Column/SellingBox/SellingRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.76, 0.72, 0.52, 1)
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 3
+
+[node name="ConfirmationBox" type="PanelContainer" parent="Root/Column/SellingBox/SellingRows"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="ConfirmationRows" type="VBoxContainer" parent="Root/Column/SellingBox/SellingRows/ConfirmationBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ConfirmationText" type="Label" parent="Root/Column/SellingBox/SellingRows/ConfirmationBox/ConfirmationRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+
+[node name="ConfirmationButtons" type="HBoxContainer" parent="Root/Column/SellingBox/SellingRows/ConfirmationBox/ConfirmationRows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ConfirmButton" type="Button" parent="Root/Column/SellingBox/SellingRows/ConfirmationBox/ConfirmationRows/ConfirmationButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Confirm and send"
+
+[node name="DeclineButton" type="Button" parent="Root/Column/SellingBox/SellingRows/ConfirmationBox/ConfirmationRows/ConfirmationButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+disabled = true
+text = "Cancel"
+
 [node name="PollTimer" type="Timer" parent="."]
 unique_name_in_owner = true
 wait_time = 1.0
