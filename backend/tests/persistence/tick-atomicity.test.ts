@@ -127,7 +127,8 @@ function createPendingOffer(
       idempotencyKey: `engine:${MATCH_ID}:offer-${labelCounter}`,
       type: 'CREATE_SUPPLY_OFFER',
       targetBuyerId: options.targetBuyerId ?? '',
-      itemId: 'IRON_INGOT',
+      // Isolate scripted accepts: the default NPC now buys IRON_INGOT.
+      itemId: 'STEEL_PLATE',
       quantity: options.quantity ?? 10,
       unitPriceCredits: options.unitPrice ?? 10,
       deadlineTicks: options.deadlineTicks ?? 1000,

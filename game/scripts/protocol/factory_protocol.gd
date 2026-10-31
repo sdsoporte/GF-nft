@@ -18,6 +18,30 @@ const ALLOWED_COMMAND_STATUSES := ["queued", "executed", "rejected"]
 const FINAL_COMMAND_STATUSES := ["executed", "rejected"]
 const ALLOWED_CONTRACT_STATUSES := ["DRAFT", "PENDING", "ACTIVE", "FULFILLED", "DEFAULTED", "CANCELLED"]
 
+# Issue #58 milestone B: the owner-session seller loop.
+const OWNER_SESSION_PATH := "/v1/owner/sessions"
+const OWNER_SELLING_PATH := "/v1/owner/selling"
+const OWNER_CONTRACTS_PATH := "/v1/owner/contracts"
+const OWNER_ACK_STATUS := "ENQUEUED_FOR_NEXT_TICK"
+const OWNER_SESSION_TOKEN_PREFIX := "gf_owner_"
+const OWNER_SESSION_TOKEN_HEX_LENGTH := 64
+const MIN_IDEMPOTENCY_KEY_LENGTH := 8
+const MAX_IDEMPOTENCY_KEY_LENGTH := 64
+## Reported keys come from every route, including `http:<match>:<requestId>`,
+## so the read model only bounds them instead of reusing the caller key shape.
+const MAX_COMMAND_KEY_LENGTH := 128
+const ALLOWED_SELLING_COMMAND_STATUSES := ["executed", "rejected"]
+const OWNER_CONTRACT_ACTIONS := ["publish", "cancel", "dispatch"]
+## Engine figures the human confirmation presents; every one must be present.
+const SELLING_CONSEQUENCE_FIELDS := [
+	"buyerEscrowCredits",
+	"sellerCollateralCredits",
+	"marketFeeCredits",
+	"sellerNetOnFullDeliveryCredits",
+	"penaltyPerMissingUnitCredits",
+	"maximumDefaultIndemnityCredits",
+]
+
 
 static func parse_state(body: String) -> Dictionary:
 	var root := _parse_object(body, "state")
@@ -440,6 +464,340 @@ static func parse_contracts(body: String) -> Dictionary:
 		})
 
 	return _ok({"tick": tick, "companyId": company_id, "contracts": contracts})
+
+
+## Reads the one-time owner session credential. The token is returned to the
+## caller only so the client can keep it in memory; nothing else echoes it.
+static func parse_owner_session(body: String) -> Dictionary:
+	var root := _parse_object(body, "owner session")
+	if not root["ok"]:
+		return root
+	var data: Dictionary = root["value"]
+	var token := _string_field(data, "token", "owner session")
+	if not token["ok"]:
+		return token
+	var token_text := String(token["value"])
+	if not is_owner_session_token(token_text):
+		return _fail("owner session.token is not a gf_owner_ credential.")
+	var owner_id := _identifier_field(data, "ownerId", "owner session")
+	if not owner_id["ok"]:
+		return owner_id
+	var expires := _string_field(data, "expiresAtUtc", "owner session")
+	if not expires["ok"]:
+		return expires
+	return _ok({
+		"token": token_text,
+		"ownerId": String(owner_id["value"]),
+		"expiresAtUtc": String(expires["value"]),
+	})
+
+
+static func is_owner_session_token(value: String) -> bool:
+	if not value.begins_with(OWNER_SESSION_TOKEN_PREFIX):
+		return false
+	var hex := value.substr(OWNER_SESSION_TOKEN_PREFIX.length())
+	if hex.length() != OWNER_SESSION_TOKEN_HEX_LENGTH:
+		return false
+	for index in hex.length():
+		var code := hex.unicode_at(index)
+		var is_digit := code >= 48 and code <= 57
+		var is_hex_letter := code >= 97 and code <= 102
+		if not (is_digit or is_hex_letter):
+			return false
+	return true
+
+
+## The seller read model: own contracts with engine consequences, plus the
+## acting company's recent command outcomes keyed by the caller's own key.
+static func parse_owner_selling(body: String) -> Dictionary:
+	var root := _parse_object(body, "owner selling")
+	if not root["ok"]:
+		return root
+	var data: Dictionary = root["value"]
+
+	var tick := _int_field(data, "tick", 0, "owner selling")
+	if not tick["ok"]:
+		return tick
+	var company_id := _identifier_field(data, "companyId", "owner selling")
+	if not company_id["ok"]:
+		return company_id
+	var credits := _int_field(data, "availableCredits", 0, "owner selling")
+	if not credits["ok"]:
+		return credits
+	var fee_bps := _int_field(data, "marketFeeBps", 0, "owner selling")
+	if not fee_bps["ok"]:
+		return fee_bps
+
+	var contracts_result := _array_field(data, "contracts", "owner selling")
+	if not contracts_result["ok"]:
+		return contracts_result
+	var contracts: Array = []
+	var raw_contracts: Array = contracts_result["value"]
+	for index in raw_contracts.size():
+		var parsed := _parse_selling_contract(raw_contracts[index], index)
+		if not parsed["ok"]:
+			return parsed
+		contracts.append(parsed["value"])
+
+	var commands_result := _array_field(data, "recentCommands", "owner selling")
+	if not commands_result["ok"]:
+		return commands_result
+	var commands: Array = []
+	var raw_commands: Array = commands_result["value"]
+	for index in raw_commands.size():
+		var parsed_command := _parse_selling_command(raw_commands[index], index)
+		if not parsed_command["ok"]:
+			return parsed_command
+		commands.append(parsed_command["value"])
+
+	return _ok({
+		"tick": int(tick["value"]),
+		"companyId": String(company_id["value"]),
+		"availableCredits": int(credits["value"]),
+		"marketFeeBps": int(fee_bps["value"]),
+		"contracts": contracts,
+		"recentCommands": commands,
+	})
+
+
+static func _parse_selling_contract(raw: Variant, index: int) -> Dictionary:
+	var context := "owner selling.contracts[%d]" % index
+	if typeof(raw) != TYPE_DICTIONARY:
+		return _fail("%s must be an object." % context)
+	var item: Dictionary = raw
+
+	var contract_id := _identifier_field(item, "contractId", context)
+	if not contract_id["ok"]:
+		return contract_id
+	var seller_id := _identifier_field(item, "sellerCompanyId", context)
+	if not seller_id["ok"]:
+		return seller_id
+	var buyer_id: Variant = null
+	if item.has("buyerCompanyId") and item["buyerCompanyId"] != null:
+		var parsed_buyer := _identifier_field(item, "buyerCompanyId", context)
+		if not parsed_buyer["ok"]:
+			return parsed_buyer
+		buyer_id = String(parsed_buyer["value"])
+	var item_id := _identifier_field(item, "itemId", context)
+	if not item_id["ok"]:
+		return item_id
+	var status := _string_field(item, "status", context)
+	if not status["ok"]:
+		return status
+	if not ALLOWED_CONTRACT_STATUSES.has(String(status["value"])):
+		return _fail("%s.status '%s' is not a contract status." % [context, String(status["value"])])
+
+	var total_quantity := _int_field(item, "totalQuantity", 1, context)
+	if not total_quantity["ok"]:
+		return total_quantity
+	var delivered := _int_field(item, "deliveredQuantity", 0, context)
+	if not delivered["ok"]:
+		return delivered
+	if int(delivered["value"]) > int(total_quantity["value"]):
+		return _fail("%s.deliveredQuantity exceeds totalQuantity." % context)
+	var unit_price := _int_field(item, "unitPriceCredits", 1, context)
+	if not unit_price["ok"]:
+		return unit_price
+	var total_value := _int_field(item, "totalValueCredits", 1, context)
+	if not total_value["ok"]:
+		return total_value
+	var collateral := _int_field(item, "collateralSellerCredits", 0, context)
+	if not collateral["ok"]:
+		return collateral
+	var created_at := _int_field(item, "createdAtTick", 0, context)
+	if not created_at["ok"]:
+		return created_at
+	var deadline := _int_field(item, "deadlineTick", 1, context)
+	if not deadline["ok"]:
+		return deadline
+	var settled_at: Variant = null
+	if item.has("settledAtTick") and item["settledAtTick"] != null:
+		var parsed_settled := _int_field(item, "settledAtTick", 0, context)
+		if not parsed_settled["ok"]:
+			return parsed_settled
+		settled_at = int(parsed_settled["value"])
+
+	var consequences_result := _dictionary_field(item, "consequences", context)
+	if not consequences_result["ok"]:
+		return consequences_result
+	var raw_consequences: Dictionary = consequences_result["value"]
+	var consequences := {}
+	for field in SELLING_CONSEQUENCE_FIELDS:
+		var parsed_field := _int_field(raw_consequences, String(field), 0, "%s.consequences" % context)
+		if not parsed_field["ok"]:
+			return parsed_field
+		consequences[String(field)] = int(parsed_field["value"])
+
+	return _ok({
+		"contractId": String(contract_id["value"]),
+		"sellerCompanyId": String(seller_id["value"]),
+		"buyerCompanyId": buyer_id,
+		"itemId": String(item_id["value"]),
+		"status": String(status["value"]),
+		"totalQuantity": int(total_quantity["value"]),
+		"deliveredQuantity": int(delivered["value"]),
+		"unitPriceCredits": int(unit_price["value"]),
+		"totalValueCredits": int(total_value["value"]),
+		"collateralSellerCredits": int(collateral["value"]),
+		"createdAtTick": int(created_at["value"]),
+		"deadlineTick": int(deadline["value"]),
+		"settledAtTick": settled_at,
+		"consequences": consequences,
+	})
+
+
+static func _parse_selling_command(raw: Variant, index: int) -> Dictionary:
+	var context := "owner selling.recentCommands[%d]" % index
+	if typeof(raw) != TYPE_DICTIONARY:
+		return _fail("%s must be an object." % context)
+	var item: Dictionary = raw
+	var key := _string_field(item, "idempotencyKey", context)
+	if not key["ok"]:
+		return key
+	if not is_readable_command_key(String(key["value"])):
+		return _fail("%s.idempotencyKey is not a readable command key." % context)
+	var status := _string_field(item, "status", context)
+	if not status["ok"]:
+		return status
+	if not ALLOWED_SELLING_COMMAND_STATUSES.has(String(status["value"])):
+		return _fail("%s.status must be executed or rejected." % context)
+	var executed_at := _int_field(item, "executedAtTick", 0, context)
+	if not executed_at["ok"]:
+		return executed_at
+	var error_code := ""
+	if item.has("errorCode") and item["errorCode"] != null:
+		var parsed_error := _string_field(item, "errorCode", context)
+		if not parsed_error["ok"]:
+			return parsed_error
+		error_code = String(parsed_error["value"])
+	return _ok({
+		"idempotencyKey": String(key["value"]),
+		"status": String(status["value"]),
+		"executedAtTick": int(executed_at["value"]),
+		"errorCode": error_code,
+	})
+
+
+## One acknowledged financial command: admitted for a tick, never final work.
+static func parse_owner_ack(body: String) -> Dictionary:
+	var root := _parse_object(body, "owner acknowledgement")
+	if not root["ok"]:
+		return root
+	var data: Dictionary = root["value"]
+	var status := _string_field(data, "status", "owner acknowledgement")
+	if not status["ok"]:
+		return status
+	if String(status["value"]) != OWNER_ACK_STATUS:
+		return _fail(
+			"An owner acknowledgement must report status '%s', not '%s'."
+			% [OWNER_ACK_STATUS, String(status["value"])]
+		)
+	var scheduled := _int_field(data, "scheduledTick", 0, "owner acknowledgement")
+	if not scheduled["ok"]:
+		return scheduled
+
+	var ack := {"status": OWNER_ACK_STATUS, "scheduledTick": int(scheduled["value"])}
+	for field in ["quantity", "unitPriceCredits", "deadlineTick", "quantityToShip"]:
+		if not data.has(field):
+			continue
+		var parsed := _int_field(data, String(field), 1, "owner acknowledgement")
+		if not parsed["ok"]:
+			return parsed
+		ack[String(field)] = int(parsed["value"])
+	for field in ["contractId", "itemId"]:
+		if not data.has(field):
+			continue
+		var parsed := _identifier_field(data, String(field), "owner acknowledgement")
+		if not parsed["ok"]:
+			return parsed
+		ack[String(field)] = String(parsed["value"])
+	if data.has("targetBuyerId"):
+		if data["targetBuyerId"] == null:
+			ack["targetBuyerId"] = null
+		else:
+			var parsed := _identifier_field(data, "targetBuyerId", "owner acknowledgement")
+			if not parsed["ok"]:
+				return parsed
+			ack["targetBuyerId"] = String(parsed["value"])
+	return _ok(ack)
+
+
+## `POST /v1/owner/contracts`: offer terms only. An open offer omits the buyer.
+static func build_owner_draft_request(
+	idempotency_key: String,
+	item_id: String,
+	quantity: int,
+	unit_price_credits: int,
+	deadline_tick: int,
+	target_buyer_id: String = ""
+) -> Dictionary:
+	if not is_valid_idempotency_key(idempotency_key):
+		return _fail(
+			"idempotency_key must be %d-%d characters from A-Z, a-z, 0-9, '_' or '-'."
+			% [MIN_IDEMPOTENCY_KEY_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH]
+		)
+	if not is_safe_identifier(item_id, MAX_IDENTIFIER_LENGTH):
+		return _fail("itemId must be a server item identifier using A-Z, a-z, 0-9, '_' or '-'.")
+	if quantity < 1 or unit_price_credits < 1 or deadline_tick < 1:
+		return _fail("quantity, unit price and deadline tick must be positive integers.")
+	var payload := {
+		"idempotency_key": idempotency_key,
+		"item_id": item_id,
+		"quantity": quantity,
+		"unit_price": unit_price_credits,
+		"deadline_tick": deadline_tick,
+	}
+	if not target_buyer_id.is_empty():
+		if not is_safe_identifier(target_buyer_id, MAX_IDENTIFIER_LENGTH):
+			return _fail("targetBuyerId must be a company identifier, or empty for an open offer.")
+		payload["target_buyer_id"] = target_buyer_id
+	return _ok(JSON.stringify(payload))
+
+
+static func build_owner_action_request(idempotency_key: String) -> Dictionary:
+	if not is_valid_idempotency_key(idempotency_key):
+		return _fail(
+			"idempotency_key must be %d-%d characters from A-Z, a-z, 0-9, '_' or '-'."
+			% [MIN_IDEMPOTENCY_KEY_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH]
+		)
+	return _ok(JSON.stringify({"idempotency_key": idempotency_key}))
+
+
+static func build_owner_dispatch_request(idempotency_key: String, quantity_to_ship: int) -> Dictionary:
+	if not is_valid_idempotency_key(idempotency_key):
+		return _fail(
+			"idempotency_key must be %d-%d characters from A-Z, a-z, 0-9, '_' or '-'."
+			% [MIN_IDEMPOTENCY_KEY_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH]
+		)
+	if quantity_to_ship < 1:
+		return _fail("quantity_to_ship must be a positive integer.")
+	return _ok(JSON.stringify({"idempotency_key": idempotency_key, "quantity_to_ship": quantity_to_ship}))
+
+
+static func owner_contract_path(contract_id: String, action: String) -> String:
+	if not is_safe_identifier(contract_id, MAX_IDENTIFIER_LENGTH):
+		return ""
+	if not OWNER_CONTRACT_ACTIONS.has(action):
+		return ""
+	return "%s/%s/%s" % [OWNER_CONTRACTS_PATH, contract_id, action]
+
+
+## Keys the seller loop reports include other routes' keys, so this never
+## reuses the stricter caller-key shape the financial routes require.
+static func is_readable_command_key(value: String) -> bool:
+	if value.is_empty() or value.length() > MAX_COMMAND_KEY_LENGTH:
+		return false
+	for index in value.length():
+		var code := value.unicode_at(index)
+		if code < 33 or code > 126:
+			return false
+	return true
+
+
+static func is_valid_idempotency_key(value: String) -> bool:
+	if value.length() < MIN_IDEMPOTENCY_KEY_LENGTH or value.length() > MAX_IDEMPOTENCY_KEY_LENGTH:
+		return false
+	return is_safe_identifier(value, MAX_IDEMPOTENCY_KEY_LENGTH)
 
 
 static func build_request_id(prefix: String, sequence: int) -> String:

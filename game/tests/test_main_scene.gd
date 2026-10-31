@@ -24,6 +24,8 @@ func _process(_delta: float) -> bool:
 	_test_production_lifecycle_distinction(t)
 	_test_line_controls_in_scene(t)
 	_test_market_visibility_in_scene(t)
+	_test_isometric_view_in_scene(t)
+	_test_selling_confirmation_in_scene(t)
 	quit(t.finish("test_main_scene"))
 	return true
 
@@ -544,6 +546,71 @@ func _test_line_controls_in_scene(t: TestSupport) -> void:
 	server.stop()
 
 
+func _test_isometric_view_in_scene(t: TestSupport) -> void:
+	var main := _instantiate()
+	if not t.check(main != null, "main scene can be instantiated for the isometric view"):
+		return
+	var view: Node = _node(main, "ProductionView")
+	if not t.check(view != null, "the main scene embeds the isometric production view"):
+		get_root().remove_child(main)
+		main.free()
+		return
+
+	t.check(view.is_placeholder_visible(), "the embedded view starts without data")
+	t.equal(view.slot_summary().size(), 0, "the embedded view invents no tile before the first snapshot")
+	var frame: Node = view.get_parent()
+	t.check(frame != null and String(frame.name) == "ProductionViewFrame", "the embedded view sits in its own framed row")
+	t.check(view.custom_minimum_size.x >= 600.0 and view.custom_minimum_size.y >= 200.0, "the embedded view reserves room beside the production and market panels")
+
+	var parsed: Dictionary = FactoryProtocol.parse_state(FileAccess.get_file_as_string("res://tests/fixtures/state_ok.json"))
+	if not t.check(parsed["ok"], "state fixture parses for the embedded view"):
+		get_root().remove_child(main)
+		main.free()
+		return
+	main.apply_snapshot(parsed["snapshot"])
+
+	var slots: Array = view.slot_summary()
+	t.equal(slots.size(), 4, "the embedded view mirrors the server lines plus the ore source")
+	t.equal(String(slots[1]["state"]), "RUNNING", "the embedded view follows the snapshot line state")
+	t.equal(main.ui_inventory_rows().size(), 9, "the existing inventory panel still renders beside the view")
+	t.equal(main.ui_line_rows().size(), 3, "the existing production panel still renders beside the view")
+
+	# Selecting a view tile must drive the existing line-selection handler, so the
+	# pause/resume/priority buttons keep targeting the line the player picked.
+	var lines_list: ItemList = _node(main, "LinesList")
+	view.select_line("comp_metal_01_line_2")
+	var selected := lines_list.get_selected_items()
+	if t.equal(selected.size(), 1, "a view selection selects one production-line row"):
+		t.equal(selected[0], 1, "the view selection selects the matching production-line row")
+
+	# The existing list selection is mirrored back without an echo loop.
+	var echoes := {"count": 0}
+	view.line_selected.connect(func(_line_id: String) -> void: echoes["count"] += 1)
+	lines_list.select(2)
+	echoes["count"] = 0
+	lines_list.item_selected.emit(2)
+	t.equal(view.get_selected_line_id(), "comp_metal_01_line_3", "the existing list selection is mirrored in the view")
+	t.equal(echoes["count"], 1, "mirroring the list selection emits one view selection, not a loop")
+
+	# Server-reported production feedback stays coherent with the view labels.
+	var completed: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/state_ok.json"))
+	completed["tick"] = 53
+	completed["company"]["lines"][1]["status"] = "IDLE"
+	completed["company"]["lines"][1]["totalBatchesProduced"] = 2
+	var completed_parsed: Dictionary = FactoryProtocol.parse_state(JSON.stringify(completed))
+	if t.check(completed_parsed["ok"], "completed fixture parses for the embedded view"):
+		main.apply_snapshot(completed_parsed["snapshot"])
+		t.contains(String(view.slot_summary()[2]["badge"]), "produced 2", "the view shows the server-reported produced count")
+		t.check(not bool(view.slot_summary()[2]["animating"]), "a completed line stops animating")
+
+	main.disconnect_from_server()
+	t.check(view.is_placeholder_visible(), "disconnecting returns the embedded view to the no-data state")
+	t.equal(view.slot_summary().size(), 0, "disconnecting removes the embedded tiles")
+
+	get_root().remove_child(main)
+	main.free()
+
+
 func _test_market_visibility_in_scene(t: TestSupport) -> void:
 	var main := _instantiate()
 	var offers_list: ItemList = _node(main, "OffersList")
@@ -663,3 +730,168 @@ func _test_market_visibility_in_scene(t: TestSupport) -> void:
 	get_root().remove_child(main)
 	main.free()
 	server.stop()
+
+
+## The selling panel is the human gate: it shows the engine figures, sends
+## nothing before the player confirms, and follows a queued 202 to its final
+## engine result through the seller read model.
+func _test_selling_confirmation_in_scene(t: TestSupport) -> void:
+	var server := TCPServer.new()
+	if not t.equal(server.listen(0, "127.0.0.1"), OK, "the selling test owns a loopback listener"):
+		return
+	var url := "http://127.0.0.1:%d" % server.get_local_port()
+	var main := _instantiate()
+	if not t.check(main != null, "main scene can be instantiated for the selling test"):
+		server.stop()
+		return
+
+	t.check(_node(main, "OwnerSessionButton").disabled, "the owner session is disabled before connecting")
+	t.check(_node(main, "DraftOfferButton").disabled, "drafting is disabled before connecting")
+	t.check(_node(main, "PublishOfferButton").disabled, "publishing is disabled before connecting")
+	t.check(not main.is_confirmation_visible(), "no confirmation is shown at boot")
+
+	var parsed: Dictionary = FactoryProtocol.parse_state(
+		FileAccess.get_file_as_string("res://tests/fixtures/state_ok.json")
+	)
+	main.apply_snapshot(parsed["snapshot"])
+	t.equal(_node(main, "SellItemEdit").text, "IRON_INGOT", "the offer item defaults to the R1 output")
+	main.press_draft_offer()
+	t.contains(main.ui_error_text().to_lower(), "owner session", "drafting without an owner session is refused")
+	t.check(not main.is_confirmation_visible(), "the refused draft shows no confirmation")
+
+	_node(main, "UrlEdit").text = url
+	_node(main, "TokenEdit").text = ENV_TOKEN
+	_node(main, "ConnectButton").pressed.emit()
+	var client: FactoryApiClient = main.get_client()
+	var generation: int = client.get_generation()
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_HEALTH, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("health_ok.json")
+	), "the selling test health check is accepted")
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_STATE, HTTPRequest.RESULT_SUCCESS, 200, t.fixture("state_ok.json")
+	), "the selling test state read is accepted")
+	t.check(_node(main, "DraftOfferButton").disabled, "a connected screen still needs an owner session to sell")
+	t.check(not _node(main, "OwnerSessionButton").disabled, "the owner session is offered once the screen is connected")
+
+	_node(main, "OwnerSessionButton").pressed.emit()
+	t.equal(
+		client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_SESSION,
+		"the owner session button exchanges the root bearer"
+	)
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_SESSION, HTTPRequest.RESULT_SUCCESS, 201,
+		t.fixture("owner_session_ok.json")
+	), "the owner session response is accepted")
+	t.contains(main.ui_selling_session_text(), "owner_fixture", "the visible line names the owner and its expiry")
+	t.equal(
+		client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_SELLING,
+		"opening the session reads the seller loop"
+	)
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_SELLING, HTTPRequest.RESULT_SUCCESS, 200,
+		t.fixture("owner_selling_ok.json")
+	), "the seller loop is accepted")
+	t.equal(main.ui_selling_contract_rows().size(), 2, "the visible seller list shows the own contracts")
+	t.contains(main.ui_selling_contract_rows()[0], "cnt_42_1", "the list names the draft")
+	t.check(not _node(main, "DraftOfferButton").disabled, "drafting is enabled with an owner session")
+
+	main.set_sell_terms("IRON_INGOT", "ten", "5", "40", "")
+	main.press_draft_offer()
+	t.contains(main.ui_error_text(), "Quantity", "an unusable quantity is refused before any confirmation")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "the refused form started no request")
+
+	main.select_selling_contract("cnt_42_1")
+	t.check(not _node(main, "PublishOfferButton").disabled, "publishing is enabled for the selected draft")
+	t.check(_node(main, "DispatchOfferButton").disabled, "dispatching is disabled for a draft offer")
+	main.press_publish_offer()
+	t.check(main.is_confirmation_visible(), "publishing asks for confirmation first")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "showing the confirmation sends nothing")
+	var confirmation: String = main.ui_confirmation_text()
+	t.contains(confirmation, "cnt_42_1", "the confirmation names the contract")
+	t.contains(confirmation, "50 buyer escrow", "the confirmation shows the buyer escrow the server reported")
+	t.contains(confirmation, "10 of your credits as collateral", "the confirmation shows the locked collateral")
+	t.contains(confirmation, "49 credits net", "the confirmation shows the net payout after the fee")
+	t.contains(confirmation, "up to 10 credits of collateral", "the confirmation shows the default consequence")
+	main.press_decline_selling()
+	t.check(not main.is_confirmation_visible(), "declining hides the confirmation")
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "declining sends nothing")
+
+	main.press_publish_offer()
+	main.press_confirm_selling()
+	t.equal(
+		client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_PUBLISH,
+		"confirming sends exactly one publish"
+	)
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_PUBLISH, HTTPRequest.RESULT_SUCCESS, 202,
+		t.fixture("owner_ack_publish.json")
+	), "the publish acknowledgement is accepted")
+	t.contains(main.ui_selling_status_text(), "queued key", "a 202 is reported as queued, not done")
+	var key := _queued_selling_key(main)
+	t.check(not key.is_empty(), "the queued acknowledgement names the caller key")
+	t.equal(
+		client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_SELLING,
+		"a queued command is followed through the seller read model"
+	)
+	var outcome := {
+		"tick": 43,
+		"companyId": "comp_metal_01",
+		"availableCredits": 10000,
+		"marketFeeBps": 200,
+		"contracts": [],
+		"recentCommands": [{
+			"idempotencyKey": key,
+			"status": "rejected",
+			"executedAtTick": 44,
+			"errorCode": "ERR_INSUFFICIENT_COLLATERAL",
+		}],
+	}
+	t.check(client.deliver_exchange_result(
+		generation, FactoryApiClient.EXCHANGE_OWNER_SELLING, HTTPRequest.RESULT_SUCCESS, 200,
+		JSON.stringify(outcome)
+	), "the outcome read is accepted")
+	t.contains(main.ui_selling_status_text(), "Server rejected " + key, "the queued command reaches its final result")
+	t.contains(main.ui_selling_status_text(), "ERR_INSUFFICIENT_COLLATERAL", "the engine error code is visible")
+	t.contains(main.ui_selling_status_text(), "nothing changed", "a rejection never claims an economic change")
+
+	main.apply_owner_selling(
+		FactoryProtocol.parse_owner_selling(t.fixture("owner_selling_ok.json"))["value"]
+	)
+	main.select_selling_contract("cnt_40_2")
+	t.check(not _node(main, "DispatchOfferButton").disabled, "dispatching is enabled for the active contract")
+	main.set_dispatch_quantity("3")
+	main.press_dispatch_offer()
+	t.check(main.is_confirmation_visible(), "dispatching asks for confirmation first")
+	t.contains(main.ui_confirmation_text(), "Confirm dispatch of 3 RAW_ORE", "the confirmation names the lot")
+	t.contains(
+		main.ui_confirmation_text(),
+		"Delivered after this: 5 of 5 units",
+		"the confirmation states the engine-known delivery progress"
+	)
+	t.equal(client.get_pending_exchange(), FactoryApiClient.EXCHANGE_NONE, "the dispatch confirmation sends nothing")
+	main.press_confirm_selling()
+	t.equal(
+		client.get_pending_exchange(), FactoryApiClient.EXCHANGE_OWNER_DISPATCH,
+		"confirming sends exactly one dispatch"
+	)
+
+	main.disconnect_from_server()
+	t.equal(main.ui_selling_contract_rows().size(), 0, "disconnecting clears the seller list")
+	t.contains(main.ui_selling_session_text(), "none", "disconnecting forgets the owner session")
+	t.check(not main.is_confirmation_visible(), "disconnecting clears any pending confirmation")
+	get_root().remove_child(main)
+	main.free()
+	server.stop()
+
+
+## The caller key of the financial command that is waiting for the engine.
+func _queued_selling_key(main: Node) -> String:
+	var text: String = main.ui_selling_status_text()
+	var start := text.find("key ")
+	if start < 0:
+		return ""
+	var rest := text.substr(start + 4)
+	var stop := rest.find(" ")
+	if stop < 0:
+		return rest.strip_edges()
+	return rest.substr(0, stop)

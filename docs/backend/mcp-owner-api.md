@@ -40,7 +40,11 @@ session; it does not bypass the grant-administration session check.
 | `POST /v1/owner/grants` | Owner-session bearer | 201: one-time `{ token, grant }`. |
 | `GET /v1/owner/grants/<id>` | Owner-session bearer | 200: `{ grant }`, or generic 404. |
 | `DELETE /v1/owner/grants/<id>` | Owner-session bearer | 200: `{ revoked: true }`, or generic 404. |
+| `POST /v1/owner/contracts` | Owner-session bearer | 202: enqueue a new offer draft for the server-selected company. |
 | `POST /v1/owner/contracts/<id>/publish` | Owner-session bearer | 202: enqueue publication of an owned DRAFT on the next tick. |
+| `POST /v1/owner/contracts/<id>/cancel` | Owner-session bearer | 202: enqueue cancellation of an owned DRAFT or unaccepted PENDING offer. |
+| `POST /v1/owner/contracts/<id>/dispatch` | Owner-session bearer | 202: enqueue a seller dispatch for an owned ACTIVE contract. |
+| `GET /v1/owner/selling` | Owner-session bearer | 200: own contracts with the engine escrow, collateral, fee and default figures, plus recent command outcomes by caller `idempotency_key`. Read-only; other methods are 405. |
 
 Missing, expired, revoked or wrong session bearers return the existing fixed 401
 `UNAUTHORIZED` response. A root bearer alone is also rejected by grant routes.
@@ -89,6 +93,19 @@ Both drafts and queued publication survive an isolated persisted restart; owner
 sessions do not. See [draft rules](supply-contracts.md) and the
 [version-6 storage upgrade](contract-draft-storage.md). MCP has no publication
 or acceptance tool; `contracts:draft` is not financial approval.
+
+## Draft, cancel and dispatch offers
+
+The same owner session drives the rest of the player-as-seller loop:
+`POST /v1/owner/contracts` drafts an offer from terms only,
+`POST /v1/owner/contracts/<id>/cancel` cancels an owned DRAFT or unaccepted
+PENDING offer, and `POST /v1/owner/contracts/<id>/dispatch` ships goods for an
+owned ACTIVE contract. Each accepted call returns 202
+`ENQUEUED_FOR_NEXT_TICK`; the engine rechecks ownership, status, deadline,
+collateral and stock at execution. There is no ACTIVE cancellation, no owner
+acceptance route and no new financial grant scope. Read the
+[full contract](owner-contract-selling.md) for exact bodies, value bounds and
+the known session-only read gap.
 
 ## Server enforcement and recovery
 

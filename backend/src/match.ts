@@ -56,6 +56,8 @@ export const DEFAULT_TICK_INTERVAL_MS = 1000;
 export const DEFAULT_MATCH_SEED = 42107;
 /** Maximum unique command acknowledgements retained per match. */
 export const MAX_ACKNOWLEDGED_REQUESTS = 1024;
+/** Command outcomes the seller read model reports, newest last. */
+export const SELLING_HISTORY_LIMIT = 25;
 
 export interface RecipeProjection {
   readonly id: RecipeId;
@@ -123,6 +125,58 @@ export interface ContractsPayload {
   readonly tick: number;
   readonly companyId: string;
   readonly contracts: ReadonlyArray<ContractProjection>;
+}
+
+/**
+ * Engine-owned figures a human must see before approving a financial command
+ * (issue #58, milestone B). They are derived from the stored contract and the
+ * engine's own constants; this projection adds no rule and decides nothing.
+ */
+export interface SellingConsequences {
+  /** Buyer funds the engine locks when the offer is accepted (100% of value). */
+  readonly buyerEscrowCredits: number;
+  /** Seller funds the engine locks when the offer is accepted (20% of value). */
+  readonly sellerCollateralCredits: number;
+  /** Market fee the settlement withholds from delivered value (2%). */
+  readonly marketFeeCredits: number;
+  /** What the seller keeps when every unit is delivered. */
+  readonly sellerNetOnFullDeliveryCredits: number;
+  /** Credits the seller forfeits per undelivered unit on default. */
+  readonly penaltyPerMissingUnitCredits: number;
+  /** Most the seller can lose on default: the smaller of collateral and penalty. */
+  readonly maximumDefaultIndemnityCredits: number;
+}
+
+/** One own contract plus the consequences of publishing, shipping or defaulting. */
+export interface SellingContractProjection extends Omit<ContractProjection, 'buyerCompanyId'> {
+  /** `null` while the offer is open; the designated buyer once it is targeted. */
+  readonly buyerCompanyId: string | null;
+  readonly consequences: SellingConsequences;
+}
+
+/** One admitted command of the acting company, correlated by its caller key. */
+export interface SellingCommandOutcome {
+  readonly idempotencyKey: string;
+  readonly status: 'executed' | 'rejected';
+  readonly executedAtTick: number;
+  readonly errorCode: string | null;
+}
+
+/**
+ * `GET /v1/owner/selling`: the owner-session read model of the seller loop.
+ *
+ * It exists because the writing routes cannot read themselves back: the engine
+ * assigns `contractId` while executing a queued draft, and escrow, collateral,
+ * fee and indemnity are engine state. Nothing here is public market data and
+ * nothing here is a new economic rule.
+ */
+export interface OwnerSellingPayload {
+  readonly tick: number;
+  readonly companyId: string;
+  readonly availableCredits: number;
+  readonly marketFeeBps: number;
+  readonly contracts: ReadonlyArray<SellingContractProjection>;
+  readonly recentCommands: ReadonlyArray<SellingCommandOutcome>;
 }
 
 export type CommandStatus = 'queued' | 'executed' | 'rejected';
@@ -294,6 +348,28 @@ function isOwnContract(contract: SupplyContract, companyId: string): boolean {
     (contract.sellerCompanyId === companyId || contract.buyerCompanyId === companyId) &&
     (contract.status !== 'DRAFT' || contract.sellerCompanyId === companyId)
   );
+}
+
+/**
+ * Financial consequences of one contract, read from the stored record and the
+ * engine's own fee constant. Default indemnity follows the engine settlement:
+ * the smaller of the seller collateral and the penalty for the missing units.
+ */
+function sellingConsequences(contract: SupplyContract): SellingConsequences {
+  const fee = Math.floor(
+    (contract.totalValueCredits * SimulatorEngine.MARKET_TRANSACTION_FEE_BPS) / 10000,
+  );
+  return {
+    buyerEscrowCredits: contract.totalValueCredits,
+    sellerCollateralCredits: contract.collateralSellerCredits,
+    marketFeeCredits: fee,
+    sellerNetOnFullDeliveryCredits: contract.totalValueCredits - fee,
+    penaltyPerMissingUnitCredits: contract.penaltyPerMissingUnit,
+    maximumDefaultIndemnityCredits: Math.min(
+      contract.collateralSellerCredits,
+      contract.totalQuantity * contract.penaltyPerMissingUnit,
+    ),
+  };
 }
 
 export class FactoryMatch {
@@ -927,6 +1003,52 @@ export class FactoryMatch {
       }));
 
     return { tick, companyId: company.companyId, contracts };
+  }
+
+  /**
+   * The seller loop as the owner session sees it (issue #58, milestone B).
+   *
+   * Own contracts are projected with the engine figures a human confirmation
+   * must show, and the acting company's recent command outcomes are reported by
+   * the caller's own idempotency key so a queued 202 can be followed to its
+   * final executed or rejected result. No foreign contract, token or digest is
+   * ever included and no state changes here.
+   */
+  public getOwnerSellingPayload(): OwnerSellingPayload {
+    const company = this.getServerCompany();
+    return {
+      tick: this.engine.getCurrentTick(),
+      companyId: company.companyId,
+      availableCredits: company.credits,
+      marketFeeBps: SimulatorEngine.MARKET_TRANSACTION_FEE_BPS,
+      contracts: this.engine
+        .getAllContracts()
+        .filter((contract) => isOwnContract(contract, company.companyId))
+        .map((contract) => ({
+          contractId: contract.contractId,
+          sellerCompanyId: contract.sellerCompanyId,
+          buyerCompanyId: contract.buyerCompanyId === '' ? null : contract.buyerCompanyId,
+          itemId: contract.itemId,
+          totalQuantity: contract.totalQuantity,
+          deliveredQuantity: contract.deliveredQuantity,
+          unitPriceCredits: contract.unitPriceCredits,
+          totalValueCredits: contract.totalValueCredits,
+          collateralSellerCredits: contract.collateralSellerCredits,
+          createdAtTick: contract.createdAtTick,
+          deadlineTick: contract.deadlineTick,
+          status: contract.status,
+          settledAtTick: contract.settledAtTick ?? null,
+          consequences: sellingConsequences(contract),
+        })),
+      recentCommands: this.engine
+        .getCompanyExecutionHistory(company.companyId, SELLING_HISTORY_LIMIT)
+        .map((result) => ({
+          idempotencyKey: result.idempotencyKey,
+          status: result.success ? 'executed' as const : 'rejected' as const,
+          executedAtTick: result.executedAtTick,
+          errorCode: result.errorCode ?? null,
+        })),
+    };
   }
 
   /** Detached own-company state plus the supported recipe projection. */
