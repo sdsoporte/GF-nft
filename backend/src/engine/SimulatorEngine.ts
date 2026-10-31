@@ -1375,6 +1375,16 @@ export class SimulatorEngine {
             errorMessage: 'Only the designated buyer can accept this offer',
           };
         }
+        if (contract.deadlineTick <= this.currentTick) {
+          return {
+            commandId: cmd.commandId,
+            idempotencyKey: cmd.idempotencyKey,
+            executedAtTick: this.currentTick,
+            success: false,
+            errorCode: 'ERR_OFFER_NOT_AVAILABLE',
+            errorMessage: 'Offer has expired',
+          };
+        }
 
         const seller = this.companies.get(contract.sellerCompanyId);
         if (!seller) {
