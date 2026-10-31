@@ -47,6 +47,7 @@ var _contracts_list: ItemList
 var _market_tick_label: Label
 var _contracts_tick_label: Label
 var _refresh_market_button: Button
+var _production_view: FactoryIsometricView
 var _auto_fetch_contracts: bool = false
 
 var _client: FactoryApiClient
@@ -63,6 +64,7 @@ var _waiting_for_batch_completion: bool = false
 var _last_action_kind: String = ""
 var _last_action_line_id: String = ""
 var _last_action_priority: int = -1
+var _syncing_line_selection: bool = false
 
 
 func _ready() -> void:
@@ -103,6 +105,7 @@ func setup() -> void:
 	_market_tick_label = %MarketTickLabel
 	_contracts_tick_label = %ContractsTickLabel
 	_refresh_market_button = %RefreshMarketButton
+	_production_view = %ProductionView
 
 	_help_label.text = HELP_TEXT
 	_token_edit.secret = true
@@ -135,6 +138,9 @@ func setup() -> void:
 	_priority_2_button.pressed.connect(func() -> void: _on_priority_pressed(2))
 	_priority_3_button.pressed.connect(func() -> void: _on_priority_pressed(3))
 	_lines_list.item_selected.connect(_on_line_selected)
+	if _production_view != null:
+		_production_view.setup()
+		_production_view.line_selected.connect(_on_view_line_selected)
 	_poll_timer.wait_time = POLL_INTERVAL_SECONDS
 	_poll_timer.timeout.connect(_on_poll_timeout)
 
@@ -209,6 +215,9 @@ func apply_snapshot(snapshot: FactorySnapshot) -> void:
 	if not previous_selection.is_empty() and previous_selection[0] < _lines_list.item_count:
 		_lines_list.select(previous_selection[0])
 	_error_label.text = ""
+	if _production_view != null:
+		_production_view.apply_snapshot(snapshot)
+		_sync_view_selection()
 
 	if _waiting_for_batch_completion and not _tracked_line_id.is_empty():
 		if snapshot.match_id != _tracked_match_id:
@@ -300,7 +309,7 @@ func press_start(line_id: String = "") -> void:
 	if _snapshot != null and not line_id.is_empty():
 		for index in _snapshot.lines.size():
 			if String(_snapshot.lines[index].get("lineId", "")) == line_id:
-				_lines_list.select(index)
+				_select_line_row(index)
 				break
 	_on_start_pressed()
 
@@ -575,11 +584,45 @@ func _select_line_by_id(line_id: String) -> void:
 	if _snapshot != null and not line_id.is_empty():
 		for index in _snapshot.lines.size():
 			if String(_snapshot.lines[index].get("lineId", "")) == line_id:
-				_lines_list.select(index)
+				_select_line_row(index)
 				break
 
 
+## One selection path: the visible line list stays authoritative for the
+## existing control handlers, and the isometric view mirrors the same line.
+func _select_line_row(index: int) -> void:
+	_lines_list.select(index)
+	_sync_view_selection()
+
+
+func _sync_view_selection() -> void:
+	if _production_view == null:
+		return
+	_syncing_line_selection = true
+	var selected := _lines_list.get_selected_items()
+	if _snapshot == null or selected.is_empty() or selected[0] >= _snapshot.lines.size():
+		_production_view.select_line("")
+	else:
+		_production_view.select_line(String(_snapshot.lines[selected[0]].get("lineId", "")))
+	_syncing_line_selection = false
+
+
+## Mirroring a view tile choice into the existing list keeps pause, resume,
+## priority and start targeting exactly the line the player picked.
+func _on_view_line_selected(line_id: String) -> void:
+	if _syncing_line_selection or _snapshot == null:
+		return
+	_syncing_line_selection = true
+	for index in _snapshot.lines.size():
+		if String(_snapshot.lines[index].get("lineId", "")) == line_id:
+			_lines_list.select(index)
+			break
+	_syncing_line_selection = false
+	_refresh_action_state()
+
+
 func _on_line_selected(_index: int) -> void:
+	_sync_view_selection()
 	_refresh_action_state()
 
 
@@ -661,6 +704,8 @@ func _clear_snapshot_ui() -> void:
 	if _refresh_market_button != null:
 		_refresh_market_button.disabled = true
 	_auto_fetch_contracts = false
+	if _production_view != null:
+		_production_view.apply_snapshot(null)
 	_command_label.text = ""
 	_action_hint.text = FactoryViewModel.NO_SNAPSHOT_REASON
 

@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/view/factory_isometric_view.gd" id="1_view"]
+
+[node name="FactoryIsometricView" type="Control"]
+custom_minimum_size = Vector2(640, 230)
+mouse_filter = 0
+script = ExtResource("1_view")

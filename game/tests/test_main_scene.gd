@@ -24,6 +24,7 @@ func _process(_delta: float) -> bool:
 	_test_production_lifecycle_distinction(t)
 	_test_line_controls_in_scene(t)
 	_test_market_visibility_in_scene(t)
+	_test_isometric_view_in_scene(t)
 	quit(t.finish("test_main_scene"))
 	return true
 
@@ -542,6 +543,71 @@ func _test_line_controls_in_scene(t: TestSupport) -> void:
 	get_root().remove_child(main)
 	main.free()
 	server.stop()
+
+
+func _test_isometric_view_in_scene(t: TestSupport) -> void:
+	var main := _instantiate()
+	if not t.check(main != null, "main scene can be instantiated for the isometric view"):
+		return
+	var view: Node = _node(main, "ProductionView")
+	if not t.check(view != null, "the main scene embeds the isometric production view"):
+		get_root().remove_child(main)
+		main.free()
+		return
+
+	t.check(view.is_placeholder_visible(), "the embedded view starts without data")
+	t.equal(view.slot_summary().size(), 0, "the embedded view invents no tile before the first snapshot")
+	var frame: Node = view.get_parent()
+	t.check(frame != null and String(frame.name) == "ProductionViewFrame", "the embedded view sits in its own framed row")
+	t.check(view.custom_minimum_size.x >= 600.0 and view.custom_minimum_size.y >= 200.0, "the embedded view reserves room beside the production and market panels")
+
+	var parsed: Dictionary = FactoryProtocol.parse_state(FileAccess.get_file_as_string("res://tests/fixtures/state_ok.json"))
+	if not t.check(parsed["ok"], "state fixture parses for the embedded view"):
+		get_root().remove_child(main)
+		main.free()
+		return
+	main.apply_snapshot(parsed["snapshot"])
+
+	var slots: Array = view.slot_summary()
+	t.equal(slots.size(), 4, "the embedded view mirrors the server lines plus the ore source")
+	t.equal(String(slots[1]["state"]), "RUNNING", "the embedded view follows the snapshot line state")
+	t.equal(main.ui_inventory_rows().size(), 9, "the existing inventory panel still renders beside the view")
+	t.equal(main.ui_line_rows().size(), 3, "the existing production panel still renders beside the view")
+
+	# Selecting a view tile must drive the existing line-selection handler, so the
+	# pause/resume/priority buttons keep targeting the line the player picked.
+	var lines_list: ItemList = _node(main, "LinesList")
+	view.select_line("comp_metal_01_line_2")
+	var selected := lines_list.get_selected_items()
+	if t.equal(selected.size(), 1, "a view selection selects one production-line row"):
+		t.equal(selected[0], 1, "the view selection selects the matching production-line row")
+
+	# The existing list selection is mirrored back without an echo loop.
+	var echoes := {"count": 0}
+	view.line_selected.connect(func(_line_id: String) -> void: echoes["count"] += 1)
+	lines_list.select(2)
+	echoes["count"] = 0
+	lines_list.item_selected.emit(2)
+	t.equal(view.get_selected_line_id(), "comp_metal_01_line_3", "the existing list selection is mirrored in the view")
+	t.equal(echoes["count"], 1, "mirroring the list selection emits one view selection, not a loop")
+
+	# Server-reported production feedback stays coherent with the view labels.
+	var completed: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/state_ok.json"))
+	completed["tick"] = 53
+	completed["company"]["lines"][1]["status"] = "IDLE"
+	completed["company"]["lines"][1]["totalBatchesProduced"] = 2
+	var completed_parsed: Dictionary = FactoryProtocol.parse_state(JSON.stringify(completed))
+	if t.check(completed_parsed["ok"], "completed fixture parses for the embedded view"):
+		main.apply_snapshot(completed_parsed["snapshot"])
+		t.contains(String(view.slot_summary()[2]["badge"]), "produced 2", "the view shows the server-reported produced count")
+		t.check(not bool(view.slot_summary()[2]["animating"]), "a completed line stops animating")
+
+	main.disconnect_from_server()
+	t.check(view.is_placeholder_visible(), "disconnecting returns the embedded view to the no-data state")
+	t.equal(view.slot_summary().size(), 0, "disconnecting removes the embedded tiles")
+
+	get_root().remove_child(main)
+	main.free()
 
 
 func _test_market_visibility_in_scene(t: TestSupport) -> void:

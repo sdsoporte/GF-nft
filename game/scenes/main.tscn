@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://scenes/factory_isometric_view.tscn" id="2_view"]
 
 [node name="FactoryMain" type="Control"]
 anchors_preset = 15
@@ -131,6 +132,19 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
 text = "Energy: not connected"
+
+[node name="ViewRow" type="HBoxContainer" parent="Root/Column"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ProductionViewFrame" type="PanelContainer" parent="Root/Column/ViewRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ProductionView" parent="Root/Column/ViewRow/ProductionViewFrame" instance=ExtResource("2_view")]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(640, 230)
+layout_mode = 2
 
 [node name="Body" type="HBoxContainer" parent="Root/Column"]
 layout_mode = 2
