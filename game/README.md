@@ -67,6 +67,7 @@ Read that file before changing request or response shapes.
 | `scripts/net/factory_api_client.gd` | Bearer HTTP session: health preflight, polling, production, line controls, market offers, contracts, owner session and financial commands, command status, error redaction. |
 | `scripts/view/factory_view_model.gd` | Pure snapshot, market offers and contracts → screen text projection. |
 | `scripts/dev/factory_smoke.gd` | Optional `--smoke` runner that drives the visible scene against a real backend. |
+| `scripts/dev/factory_selling_smoke.gd` | Optional `--smoke-selling` runner for the sell-first journey, used by `tests/run_selling_smoke.sh`. |
 | `tests/` | Headless Godot suites with contract fixtures. |
 
 ## Checks
@@ -99,6 +100,23 @@ server snapshots then show the R1 output and the visible inventory shows it,
 with a finite timeout. Input stock is checked as a lower bound only: the
 independent ore extractor can replenish `RAW_ORE` while the batch runs, so the
 smoke fails only when input dropped deeper than the recipe allows.
+
+Sell-first journey against a disposable backend (self-contained, no live data):
+
+```bash
+GODOT_BIN=/path/to/Godot_v4.7.2-stable_linux.x86_64 \
+  bash tests/run_selling_smoke.sh
+```
+
+It generates its own bearer token, boots the repository's own server on a random
+loopback port with a temporary SQLite file, drives production → offer of the
+produced R1 batch → normal NPC purchase → dispatch → settlement plus one engine
+rejection through the visible screen, then restarts that backend on the same
+temporary file to prove the settled contract and the used command key are
+durable. The run fails unless the player started with no `IRON_INGOT`, the
+completed batch added exactly R1's output quantity, the offered lot is that
+quantity, and settlement paid exactly the engine-reported net payout. The
+scratch directory (and its token) is never reused.
 
 ## Optional local factory art
 See [local asset setup and requirements](../docs/art/asset-requirements.md)

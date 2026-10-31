@@ -93,4 +93,18 @@ loop and accept through their own policy.
 ```bash
 # Client rules only, no backend
 GODOT_BIN=/path/to/Godot_v4.7.2 bash game/tests/run_checks.sh
+
+# Full journey against a disposable backend: production, offer, NPC purchase,
+# dispatch, settlement, one engine rejection and a restart
+GODOT_BIN=/path/to/Godot_v4.7.2 bash game/tests/run_selling_smoke.sh
 ```
+
+The smoke sells the batch the line just produced: it fails unless the player
+started with zero IRON_INGOT, the completed R1 batch added exactly the five units
+the server promises, and the offered lot is that same quantity. It also fails
+unless settlement pays exactly the net payout the server reported (50 value − 1
+market fee = 49 credits, with the 10-credit collateral returned). The script
+generates its own token, boots its own backend on a random loopback port with a
+temporary SQLite file, and restarts that backend to prove the settled contract
+and the used command key survive a new process. It never touches live data, a
+real wallet or a persistent state file.
