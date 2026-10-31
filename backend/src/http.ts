@@ -797,7 +797,9 @@ async function handleOwnerRequest(
   const publication = /^\/v1\/owner\/contracts\/([^/]+)\/publish$/.exec(path);
   const offerDraft = path === '/v1/owner/contracts';
   const offerAction = /^\/v1\/owner\/contracts\/([^/]+)\/(cancel|dispatch)$/.exec(path);
-  if (!login && !logout && !collection && !item && !publication && !offerDraft && !offerAction) {
+  // Issue #58 milestone B: the seller read model the confirmation step needs.
+  const selling = path === '/v1/owner/selling';
+  if (!login && !logout && !collection && !item && !publication && !offerDraft && !offerAction && !selling) {
     return false;
   }
   const method = req.method ?? 'GET';
@@ -805,6 +807,7 @@ async function handleOwnerRequest(
     : logout ? method === 'DELETE'
     : collection ? method === 'GET' || method === 'POST'
     : publication ? method === 'POST'
+    : selling ? method === 'GET'
     : offerDraft || offerAction ? method === 'POST'
     : method === 'GET' || method === 'DELETE';
   if (!methodAllowed) {
@@ -825,6 +828,10 @@ async function handleOwnerRequest(
   if (logout) {
     await discardBody(req);
     sendJson(res, 200, { revoked: owner.sessions.revoke(bearer) }); return true;
+  }
+  if (selling) {
+    await discardBody(req);
+    sendJson(res, 200, context.match.getOwnerSellingPayload()); return true;
   }
   if (publication) {
     const mediaType = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
