@@ -93,6 +93,14 @@ with a finite timeout. Input stock is checked as a lower bound only: the
 independent ore extractor can replenish `RAW_ORE` while the batch runs, so the
 smoke fails only when input dropped deeper than the recipe allows.
 
+## Optional local factory art
+
+See [local asset setup and requirements](../docs/art/asset-requirements.md)
+for the isometric-view asset catalogue, missing originals and license rules.
+Third-party files belong only in ignored `game/local_assets/`; obtain them
+separately and never commit them or send their artwork to AI tools. Public
+source and automated checks must remain usable without those local files.
+
 ## Optional editor tooling
 
 `addons/funplay_mcp/` and `override.cfg` are installed per machine and are
